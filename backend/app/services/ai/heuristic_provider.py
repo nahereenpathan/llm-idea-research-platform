@@ -180,7 +180,10 @@ class HeuristicFallbackProvider(LLMProvider):
                 "Responsive UI compatible with desktop and tablet viewports."
             ],
             "mvp_scope": [
-                "Authentication, Project creation, Idea evaluation, Paper search, and PDF/PPTX export."
+                "User authentication and multi-tenant workspace isolation.",
+                "Multi-idea evaluation and explainable 10-dimension scoring engine.",
+                "Scholarly paper search with verified reference library.",
+                "Implementation roadmap with interactive task board and architecture specs."
             ],
             "phased_milestones": [
                 {"phase": "Phase 1: Foundation", "duration": "2 weeks", "deliverables": "Database schema, Auth, Project CRUD"},

@@ -26,6 +26,9 @@ export default [
         alert: 'readonly',
         confirm: 'readonly',
         navigator: 'readonly',
+        fetch: 'readonly',
+        TextDecoder: 'readonly',
+        EventSource: 'readonly',
       },
     },
     settings: {

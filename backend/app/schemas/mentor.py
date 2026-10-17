@@ -8,7 +8,7 @@ class MentorMessageOut(BaseModel):
     conversation_id: int
     sender: str
     content: str
-    cited_sources: List[Dict[str, Any]]
+    cited_sources: List[Dict[str, Any]] = []
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -21,11 +21,18 @@ class MentorConversationCreate(BaseModel):
     title: Optional[str] = "New Mentoring Session"
 
 
+class MentorConversationUpdate(BaseModel):
+    title: Optional[str] = None
+    mode: Optional[str] = None
+    idea_id: Optional[int] = None
+    project_id: Optional[int] = None
+
+
 class MentorConversationOut(BaseModel):
     id: int
     user_id: int
-    project_id: Optional[int]
-    idea_id: Optional[int]
+    project_id: Optional[int] = None
+    idea_id: Optional[int] = None
     mode: str
     title: str
     created_at: datetime
@@ -33,7 +40,6 @@ class MentorConversationOut(BaseModel):
     messages: List[MentorMessageOut] = []
 
     model_config = ConfigDict(from_attributes=True)
-
 
 
 class SendMessageRequest(BaseModel):

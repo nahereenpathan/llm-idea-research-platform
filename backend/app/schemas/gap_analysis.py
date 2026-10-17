@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
@@ -9,6 +9,8 @@ class CitationRef(BaseModel):
     external_id: str
     source_url: str
     relevance_note: str
+    doi: Optional[str] = None
+    has_abstract: Optional[bool] = None
 
 
 class ResearchGapAnalysisOut(BaseModel):
@@ -22,11 +24,12 @@ class ResearchGapAnalysisOut(BaseModel):
     identified_gaps: List[str]
     suggested_research_questions: List[str]
     proposed_evaluation_methods: List[str]
-    citations: List[Dict[str, Any]]
+    citations: List[Dict[str, Any]] = []
+    evidence_status: Optional[str] = "moderate"  # rich, moderate, limited
+    evidence_limitation_notice: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
 
 
 class GapAnalysisGenerateRequest(BaseModel):

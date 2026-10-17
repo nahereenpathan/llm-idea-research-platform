@@ -7,9 +7,19 @@ class TaskItem(BaseModel):
     id: str
     phase: str
     title: str
-    description: str
-    estimated_days: int
+    description: Optional[str] = ""
+    estimated_days: int = 2
     status: str = "todo"  # todo, in_progress, done
+    priority: str = "medium"  # high, medium, low
+    dependencies: List[str] = []
+
+
+class TaskStatusUpdateRequest(BaseModel):
+    status: Optional[str] = None
+    priority: Optional[str] = None
+    title: Optional[str] = None
+    estimated_days: Optional[int] = None
+    dependencies: Optional[List[str]] = None
 
 
 class ImplementationRoadmapOut(BaseModel):
@@ -28,15 +38,17 @@ class ImplementationRoadmapOut(BaseModel):
     security_considerations: List[str]
     risks_and_mitigations: List[Dict[str, Any]]
     estimated_effort_ranges: Dict[str, Any]
+    effort_estimate_assumptions: Optional[List[str]] = []
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
-
 
 
 class RoadmapGenerateRequest(BaseModel):
     idea_id: int
 
 
-class TaskStatusUpdateRequest(BaseModel):
-    status: str
+class RoadmapUpdateRequest(BaseModel):
+    task_breakdown: Optional[List[Dict[str, Any]]] = None
+    objectives: Optional[List[str]] = None
+    mvp_scope: Optional[List[str]] = None

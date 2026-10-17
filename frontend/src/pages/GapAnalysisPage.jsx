@@ -13,7 +13,11 @@ import {
   FlaskConical,
   AlertCircle,
   Layers,
-  ArrowRight
+  ArrowRight,
+  ShieldAlert,
+  CheckCircle2,
+  FileText,
+  RefreshCw
 } from 'lucide-react';
 
 export default function GapAnalysisPage() {
@@ -26,9 +30,11 @@ export default function GapAnalysisPage() {
   const [gapAnalysis, setGapAnalysis] = useState(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
 
   const fetchData = async () => {
     try {
+      setErrorMessage(null);
       const proj = await projectService.getProject(projectId);
       setActiveProject(proj);
 
@@ -44,6 +50,7 @@ export default function GapAnalysisPage() {
       }
     } catch (err) {
       console.error("Error loading gap analysis:", err);
+      setErrorMessage("Failed to load project or literature analysis data.");
     } finally {
       setLoading(false);
     }
@@ -56,11 +63,13 @@ export default function GapAnalysisPage() {
   const handleGenerate = async () => {
     if (!selectedIdeaId) return;
     setGenerating(true);
+    setErrorMessage(null);
     try {
       const res = await gapService.generateGapAnalysis(projectId, selectedIdeaId);
       setGapAnalysis(res);
     } catch (err) {
-      alert("Failed to generate research gap analysis.");
+      console.error("Gap generation failed:", err);
+      setErrorMessage("Failed to generate research gap analysis. Please verify your connection or try again.");
     } finally {
       setGenerating(false);
     }
@@ -68,12 +77,14 @@ export default function GapAnalysisPage() {
 
   if (loading) {
     return (
-      <div className="py-20 text-center text-slate-400 flex items-center justify-center gap-2">
-        <span className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-        Loading literature analysis...
+      <div className="py-24 text-center text-slate-400 flex flex-col items-center justify-center gap-3">
+        <span className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-xs font-medium">Scanning saved academic literature and patent index...</p>
       </div>
     );
   }
+
+  const evidenceStatus = gapAnalysis?.evidence_status || 'moderate';
 
   return (
     <div className="space-y-6">
@@ -118,9 +129,70 @@ export default function GapAnalysisPage() {
         </div>
       </div>
 
-      {/* Epistemic disclaimer notice */}
-      <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 text-xs text-slate-400 leading-relaxed">
-        <strong className="text-slate-300">Methodological Note:</strong> Identified research gaps represent promising hypotheses for investigation based on available scholarly indexes, not definitive proof that no prior study has ever explored the concept.
+      {/* Error alert banner */}
+      {errorMessage && (
+        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+            <span>{errorMessage}</span>
+          </div>
+          <button
+            onClick={handleGenerate}
+            className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-[11px] font-semibold flex items-center gap-1 transition-colors"
+          >
+            <RefreshCw className="w-3 h-3" /> Retry
+          </button>
+        </div>
+      )}
+
+      {/* Evidence Density & Epistemic Disclaimer Banner */}
+      {gapAnalysis && (
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-900/80 border border-slate-800 text-xs">
+            <div className="flex items-center gap-2.5">
+              <span className="font-semibold text-slate-300">Evidence Grounding Status:</span>
+              <span
+                className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold capitalize flex items-center gap-1 border ${
+                  evidenceStatus === 'rich'
+                    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                    : evidenceStatus === 'moderate'
+                    ? 'bg-blue-500/15 text-blue-400 border-blue-500/30'
+                    : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                }`}
+              >
+                {evidenceStatus === 'rich' ? (
+                  <CheckCircle2 className="w-3 h-3" />
+                ) : (
+                  <AlertCircle className="w-3 h-3" />
+                )}
+                {evidenceStatus} Evidence ({gapAnalysis.citations?.length || 0} Grounded Records)
+              </span>
+            </div>
+
+            <Link
+              to={`/projects/${projectId}/research`}
+              className="text-brand-400 hover:text-brand-300 text-[11px] font-medium flex items-center gap-1"
+            >
+              Open Research Workspace to Save Papers <ArrowRight className="w-3 h-3" />
+            </Link>
+          </div>
+
+          {/* Limitation notice when evidence is limited */}
+          {gapAnalysis.evidence_limitation_notice && (
+            <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs flex items-start gap-2.5">
+              <ShieldAlert className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+              <div className="leading-relaxed">
+                <strong className="font-semibold text-amber-200">Limited Evidence Notice: </strong>
+                {gapAnalysis.evidence_limitation_notice}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* General epistemic method notice */}
+      <div className="p-3.5 rounded-xl bg-slate-900/50 border border-slate-800 text-xs text-slate-400 leading-relaxed">
+        <strong className="text-slate-300">Methodological Standard:</strong> Identified research gaps represent promising exploratory directions based on accessible literature abstracts and patent repositories. They are not guaranteed absolute novelty claims.
       </div>
 
       {!gapAnalysis ? (
@@ -247,27 +319,37 @@ export default function GapAnalysisPage() {
           </div>
 
           {/* Verified Supporting Citations */}
-          {gapAnalysis.citations?.length > 0 && (
+          {gapAnalysis.citations && gapAnalysis.citations.length > 0 && (
             <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 space-y-3">
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-brand-400" /> Supporting Scholarly & Patent Citations
-              </h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                  <BookOpen className="w-4 h-4 text-brand-400" /> Supporting Scholarly & Patent Citations ({gapAnalysis.citations.length})
+                </h3>
+                <span className="text-[10px] text-slate-400">All links point to verified source records</span>
+              </div>
               <div className="divide-y divide-slate-800 text-xs">
                 {gapAnalysis.citations.map((cite, idx) => (
-                  <div key={idx} className="py-2.5 flex items-center justify-between gap-4">
-                    <div>
-                      <span className="font-semibold text-slate-200">{cite.title}</span>
-                      <p className="text-[11px] text-slate-400 mt-0.5">{cite.relevance_note} • ID: {cite.external_id}</p>
+                  <div key={idx} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="font-semibold text-slate-200">{cite.title}</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 pl-5.5">
+                        {cite.relevance_note} {cite.external_id ? `• Record ID: ${cite.external_id}` : ''}
+                      </p>
                     </div>
-                    {cite.source_url && (
+                    {cite.source_url ? (
                       <a
                         href={cite.source_url}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-brand-400 hover:underline flex items-center gap-1 text-[11px] shrink-0"
+                        className="text-brand-400 hover:underline flex items-center gap-1 text-[11px] shrink-0 self-start sm:self-center"
                       >
-                        Source <ExternalLink className="w-3 h-3" />
+                        View Source <ExternalLink className="w-3 h-3" />
                       </a>
+                    ) : (
+                      <span className="text-[10px] text-slate-500 italic shrink-0">Metadata indexed</span>
                     )}
                   </div>
                 ))}

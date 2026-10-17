@@ -28,3 +28,21 @@ class ImplementationRoadmap(Base):
 
     project = relationship("Project", back_populates="roadmaps")
     idea = relationship("Idea", back_populates="roadmaps")
+
+    @property
+    def effort_estimate_assumptions(self):
+        if isinstance(self.estimated_effort_ranges, dict):
+            assump = self.estimated_effort_ranges.get("assumptions_behind_estimates") or self.estimated_effort_ranges.get("assumptions")
+            if isinstance(assump, list):
+                return assump
+            elif isinstance(assump, str):
+                return [
+                    assump,
+                    "Assumes dedicated core development team with modern stack proficiency.",
+                    "Assumes uninterrupted availability of external research providers."
+                ]
+        return [
+            "Estimates assume a dedicated team of 2-3 engineers.",
+            "Leveraging existing open-source frameworks and verified starter templates.",
+            "External provider APIs remain responsive within standard rate allocations."
+        ]
