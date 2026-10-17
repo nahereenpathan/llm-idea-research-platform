@@ -1,45 +1,150 @@
+import logging
+from datetime import datetime, timezone
+from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
-from typing import List, Optional
+
 from app.core.database import get_db
+from app.core.config import settings
 from app.models.project import Project
 from app.models.paper import AcademicPaper
 from app.models.patent import PatentRecord
-from app.schemas.paper import AcademicPaperCreate, AcademicPaperUpdate, AcademicPaperOut
-from app.schemas.patent import PatentRecordCreate, PatentRecordUpdate, PatentRecordOut
-from app.api.v1.deps import verify_project_ownership, get_current_user
 from app.models.user import User
+from app.schemas.paper import (
+    AcademicPaperCreate,
+    AcademicPaperUpdate,
+    AcademicPaperOut,
+    ResearchSourceInfo,
+    PaperSearchResponse
+)
+from app.schemas.patent import (
+    PatentRecordCreate,
+    PatentRecordUpdate,
+    PatentRecordOut,
+    PatentSourceInfo,
+    PatentSearchResponse
+)
+from app.api.v1.deps import verify_project_ownership, get_current_user
 from app.services.research.openalex_adapter import OpenAlexAdapter
 from app.services.research.crossref_adapter import CrossrefAdapter
+from app.services.research.ieee_adapter import IEEEAdapter
 from app.services.research.uspto_adapter import USPTOAdapter
+from app.services.research.epo_adapter import EPOAdapter
+from app.services.research.exceptions import (
+    ResearchProviderError,
+    ProviderNotConfiguredException,
+    ProviderRateLimitError,
+    ProviderTimeoutError
+)
 from app.services.ai.factory import get_llm_provider
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-# --- Academic Papers ---
+# ============================================================================
+# Academic Papers Provider Sources & Search
+# ============================================================================
 
-@router.get("/papers/search")
+@router.get("/papers/sources", response_model=List[ResearchSourceInfo])
+def get_paper_sources():
+    """Returns available scholarly metadata providers and their configuration status."""
+    ieee_configured = bool(settings.IEEE_API_KEY and settings.IEEE_API_KEY.strip())
+    return [
+        ResearchSourceInfo(
+            id="openalex",
+            name="OpenAlex",
+            requires_key=False,
+            is_configured=True,
+            status="active",
+            description="Global index of 250M+ scholarly works, authors, and citation graphs. Fully active without credentials."
+        ),
+        ResearchSourceInfo(
+            id="crossref",
+            name="Crossref",
+            requires_key=False,
+            is_configured=True,
+            status="active",
+            description="Official DOI registry for 150M+ scholarly records and publisher metadata. Fully active without credentials."
+        ),
+        ResearchSourceInfo(
+            id="ieee",
+            name="IEEE Xplore",
+            requires_key=True,
+            is_configured=ieee_configured,
+            status="active" if ieee_configured else "unconfigured",
+            description="Technical engineering and computer science literature. Requires IEEE_API_KEY in backend/.env."
+        )
+    ]
+
+
+@router.get("/papers/search", response_model=PaperSearchResponse)
 def search_academic_papers(
-    query: str = Query(..., min_length=2, description="Keywords or paper title"),
-    source: str = Query("openalex", pattern="^(openalex|crossref)$"),
-    year_from: Optional[int] = Query(None),
-    year_to: Optional[int] = Query(None),
-    limit: int = Query(10, ge=1, le=25),
+    query: str = Query(..., min_length=2, description="Keywords, DOI, author name, or paper title"),
+    source: str = Query("openalex", pattern="^(openalex|crossref|ieee)$"),
+    search_type: str = Query("keyword", pattern="^(keyword|title|author|doi)$"),
+    year_from: Optional[int] = Query(None, ge=1800, le=2100),
+    year_to: Optional[int] = Query(None, ge=1800, le=2100),
+    page: int = Query(1, ge=1, le=100),
+    limit: int = Query(10, ge=1, le=50),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Searches real scholarly literature using OpenAlex or Crossref APIs.
-    Returns live paper metadata with DOIs, authors, citations, and abstracts.
+    Searches real academic metadata providers (OpenAlex, Crossref, IEEE Xplore).
+    Returns verified titles, authors, DOIs, publication years, citations, and abstracts when available.
     """
     if source == "crossref":
         adapter = CrossrefAdapter()
+    elif source == "ieee":
+        adapter = IEEEAdapter()
     else:
         adapter = OpenAlexAdapter()
 
-    results = adapter.search_papers(query=query, year_from=year_from, year_to=year_to, limit=limit)
-    return {"query": query, "source": source, "count": len(results), "results": results}
+    if not adapter.is_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Provider '{source}' is not configured with required API credentials in backend/.env."
+        )
+
+    try:
+        results_data = adapter.search_papers(
+            query=query,
+            year_from=year_from,
+            year_to=year_to,
+            search_type=search_type,
+            page=page,
+            limit=limit
+        )
+        return results_data
+    except ProviderNotConfiguredException as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=e.message)
+    except ProviderRateLimitError as e:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=e.message)
+    except ProviderTimeoutError as e:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=e.message)
+    except ResearchProviderError as e:
+        raise HTTPException(status_code=e.status_code or status.HTTP_502_BAD_GATEWAY, detail=e.message)
+    except Exception as e:
+        logger.error(f"Unexpected error in paper search: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Search failed due to unexpected error.")
+
+
+@router.get("/papers/{paper_id}", response_model=AcademicPaperOut)
+def get_paper_details(
+    paper_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieves full bibliographic metadata for a saved paper in the user's project library."""
+    paper = db.query(AcademicPaper).filter(AcademicPaper.id == paper_id).first()
+    if not paper:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found")
+
+    project = db.query(Project).filter(Project.id == paper.project_id).first()
+    if not project or project.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    return paper
 
 
 @router.post("/projects/{project_id}/papers/save", response_model=AcademicPaperOut, status_code=status.HTTP_201_CREATED)
@@ -48,7 +153,25 @@ def save_paper_to_library(
     project: Project = Depends(verify_project_ownership),
     db: Session = Depends(get_db)
 ):
-    """Saves a discovered research paper to the project reference library."""
+    """
+    Saves a discovered research paper to the project reference library.
+    Enforces duplicate prevention: rejects if paper is already saved in this project.
+    """
+    # Check for existing paper in this project by external_id, doi, or title
+    query_filter = db.query(AcademicPaper).filter(AcademicPaper.project_id == project.id)
+    if paper_in.external_id:
+        existing = query_filter.filter(AcademicPaper.external_id == paper_in.external_id).first()
+    elif paper_in.doi:
+        existing = query_filter.filter(AcademicPaper.doi == paper_in.doi).first()
+    else:
+        existing = query_filter.filter(AcademicPaper.title == paper_in.title).first()
+
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Paper is already saved in this project reference library."
+        )
+
     paper = AcademicPaper(
         project_id=project.id,
         external_id=paper_in.external_id,
@@ -78,8 +201,12 @@ def get_project_papers(
     db: Session = Depends(get_db)
 ):
     """Retrieves all saved academic papers in project library."""
-    papers = db.query(AcademicPaper).filter(AcademicPaper.project_id == project.id).order_by(AcademicPaper.created_at.desc()).all()
-    return papers
+    return (
+        db.query(AcademicPaper)
+        .filter(AcademicPaper.project_id == project.id)
+        .order_by(AcademicPaper.created_at.desc())
+        .all()
+    )
 
 
 @router.put("/papers/{paper_id}", response_model=AcademicPaperOut)
@@ -93,7 +220,7 @@ def update_project_paper(
     paper = db.query(AcademicPaper).filter(AcademicPaper.id == paper_id).first()
     if not paper:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found")
-    
+
     project = db.query(Project).filter(Project.id == paper.project_id).first()
     if not project or project.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
@@ -136,14 +263,20 @@ def summarize_paper(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Generates an AI summary of the paper's abstract, extracting core methods and findings."""
+    """Generates an AI summary of the paper's abstract, extracting core methods and empirical findings."""
     paper = db.query(AcademicPaper).filter(AcademicPaper.id == paper_id).first()
     if not paper:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Paper not found")
-    
+
     project = db.query(Project).filter(Project.id == paper.project_id).first()
     if not project or project.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    if not paper.abstract or "Abstract not provided" in paper.abstract:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot summarize paper because publisher metadata did not provide an abstract."
+        )
 
     llm = get_llm_provider()
     prompt = (
@@ -162,27 +295,95 @@ def summarize_paper(
     return paper
 
 
-# --- Patents ---
+# ============================================================================
+# Patent Search & Library Endpoints
+# ============================================================================
 
-@router.get("/patents/search")
+@router.get("/patents/sources", response_model=List[PatentSourceInfo])
+def get_patent_sources():
+    """Returns available patent search providers and their configuration status."""
+    uspto_configured = bool(settings.USPTO_API_KEY and settings.USPTO_API_KEY.strip())
+    epo_configured = bool(
+        settings.EPO_CONSUMER_KEY and settings.EPO_CONSUMER_KEY.strip()
+        and settings.EPO_CONSUMER_SECRET and settings.EPO_CONSUMER_SECRET.strip()
+    )
+    return [
+        PatentSourceInfo(
+            id="uspto",
+            name="USPTO Open Data Portal",
+            requires_key=True,
+            is_configured=uspto_configured,
+            status="active" if uspto_configured else "unconfigured",
+            description="Official US Patent and Trademark Office Open Data Portal API (requires USPTO_API_KEY in backend/.env)."
+        ),
+        PatentSourceInfo(
+            id="epo",
+            name="EPO Open Patent Services",
+            requires_key=True,
+            is_configured=epo_configured,
+            status="active" if epo_configured else "unconfigured",
+            description="European Patent Office OPS REST API with global coverage (requires EPO_CONSUMER_KEY and EPO_CONSUMER_SECRET in backend/.env)."
+        )
+    ]
+
+
+@router.get("/patents/search", response_model=PatentSearchResponse)
 def search_patents(
-    query: str = Query(..., min_length=2, description="Keywords or technical domain"),
-    limit: int = Query(10, ge=1, le=25),
+    query: str = Query(..., min_length=2, description="Keywords, technical concept, or patent number"),
+    source: str = Query("uspto", pattern="^(uspto|epo)$"),
+    search_type: str = Query("keyword", pattern="^(keyword|concept|title|number)$"),
+    page: int = Query(1, ge=1, le=100),
+    limit: int = Query(10, ge=1, le=50),
     current_user: User = Depends(get_current_user)
 ):
     """
-    Searches patent databases using USPTO adapter.
-    Includes disclaimer: does not replace formal legal counsel.
+    Searches official patent registries (USPTO or EPO OPS).
+    Includes mandatory epistemic disclaimer: automated searches identify concept overlap
+    and do NOT establish legal patentability, infringement status, or freedom-to-operate.
     """
-    adapter = USPTOAdapter()
-    results = adapter.search_patents(query=query, limit=limit)
-    return {
-        "query": query,
-        "source": "uspto",
-        "count": len(results),
-        "disclaimer": "Automated patent searches identify potential prior art and concept similarities but do NOT constitute legal clearance or formal patentability opinions.",
-        "results": results
-    }
+    if source == "epo":
+        adapter = EPOAdapter()
+    else:
+        adapter = USPTOAdapter()
+
+    if not adapter.is_configured():
+        if source == "uspto":
+            detail_msg = "USPTO Open Data Portal is not configured. Configure USPTO_API_KEY in backend/.env. OpenAlex and Crossref academic paper searches are active without keys."
+        else:
+            detail_msg = "European Patent Office (EPO OPS) is not configured. Configure EPO_CONSUMER_KEY and EPO_CONSUMER_SECRET in backend/.env."
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=detail_msg)
+
+    try:
+        return adapter.search_patents(query=query, search_type=search_type, page=page, limit=limit)
+    except ProviderNotConfiguredException as e:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=e.message)
+    except ProviderRateLimitError as e:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=e.message)
+    except ProviderTimeoutError as e:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=e.message)
+    except ResearchProviderError as e:
+        raise HTTPException(status_code=e.status_code or status.HTTP_502_BAD_GATEWAY, detail=e.message)
+    except Exception as e:
+        logger.error(f"Unexpected error in patent search: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Patent search failed due to unexpected error.")
+
+
+@router.get("/patents/{patent_id}", response_model=PatentRecordOut)
+def get_patent_details(
+    patent_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Retrieves full metadata for a saved patent record in the user's project library."""
+    patent = db.query(PatentRecord).filter(PatentRecord.id == patent_id).first()
+    if not patent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Patent record not found")
+
+    project = db.query(Project).filter(Project.id == patent.project_id).first()
+    if not project or project.user_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
+
+    return patent
 
 
 @router.post("/projects/{project_id}/patents/save", response_model=PatentRecordOut, status_code=status.HTTP_201_CREATED)
@@ -191,7 +392,21 @@ def save_patent_to_project(
     project: Project = Depends(verify_project_ownership),
     db: Session = Depends(get_db)
 ):
-    """Saves a patent record to the project reference library."""
+    """
+    Saves a patent record to the project reference library.
+    Enforces duplicate prevention: rejects if patent_number is already saved for this project.
+    """
+    existing = db.query(PatentRecord).filter(
+        PatentRecord.project_id == project.id,
+        PatentRecord.patent_number == patent_in.patent_number
+    ).first()
+
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Patent '{patent_in.patent_number}' is already saved in this project reference library."
+        )
+
     patent = PatentRecord(
         project_id=project.id,
         patent_number=patent_in.patent_number,
@@ -219,8 +434,12 @@ def get_project_patents(
     db: Session = Depends(get_db)
 ):
     """Retrieves all saved patent records for project."""
-    patents = db.query(PatentRecord).filter(PatentRecord.project_id == project.id).order_by(PatentRecord.created_at.desc()).all()
-    return patents
+    return (
+        db.query(PatentRecord)
+        .filter(PatentRecord.project_id == project.id)
+        .order_by(PatentRecord.created_at.desc())
+        .all()
+    )
 
 
 @router.delete("/patents/{patent_id}", status_code=status.HTTP_204_NO_CONTENT)

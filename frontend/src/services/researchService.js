@@ -1,12 +1,28 @@
 import api from './api';
 
 export const researchService = {
-  // Papers
-  async searchPapers(query, source = 'openalex', yearFrom = null, yearTo = null, limit = 10) {
-    const params = { query, source, limit };
+  // --- Academic Papers ---
+  async getPaperSources() {
+    const res = await api.get('/research/papers/sources');
+    return res.data;
+  },
+
+  async searchPapers(query, source = 'openalex', yearFrom = null, yearTo = null, searchType = 'keyword', page = 1, limit = 10) {
+    const params = {
+      query,
+      source,
+      search_type: searchType,
+      page,
+      limit
+    };
     if (yearFrom) params.year_from = yearFrom;
     if (yearTo) params.year_to = yearTo;
     const res = await api.get('/research/papers/search', { params });
+    return res.data;
+  },
+
+  async getPaperDetails(paperId) {
+    const res = await api.get(`/research/papers/${paperId}`);
     return res.data;
   },
 
@@ -34,9 +50,26 @@ export const researchService = {
     return res.data;
   },
 
-  // Patents
-  async searchPatents(query, limit = 10) {
-    const res = await api.get('/research/patents/search', { params: { query, limit } });
+  // --- Patents ---
+  async getPatentSources() {
+    const res = await api.get('/research/patents/sources');
+    return res.data;
+  },
+
+  async searchPatents(query, source = 'uspto', searchType = 'keyword', page = 1, limit = 10) {
+    const params = {
+      query,
+      source,
+      search_type: searchType,
+      page,
+      limit
+    };
+    const res = await api.get('/research/patents/search', { params });
+    return res.data;
+  },
+
+  async getPatentDetails(patentId) {
+    const res = await api.get(`/research/patents/${patentId}`);
     return res.data;
   },
 

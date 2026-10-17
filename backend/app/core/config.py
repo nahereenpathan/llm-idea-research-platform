@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # External Research API configurations
     OPENALEX_MAILTO: str = "research@idealens.ai"
     CROSSREF_MAILTO: str = "research@idealens.ai"
+    IEEE_API_KEY: str = ""
+    USPTO_API_KEY: str = ""
+    EPO_CONSUMER_KEY: str = ""
+    EPO_CONSUMER_SECRET: str = ""
     
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = [
