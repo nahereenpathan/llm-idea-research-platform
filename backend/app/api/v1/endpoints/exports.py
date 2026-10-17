@@ -8,6 +8,7 @@ from app.models.project import Project
 from app.models.report import Report
 from app.models.presentation import Presentation, Slide
 from app.models.idea import Idea
+from app.models.evaluation import Evaluation
 from app.models.paper import AcademicPaper
 from app.models.patent import PatentRecord
 from app.models.gap_analysis import ResearchGapAnalysis
@@ -102,6 +103,28 @@ def export_presentation_file(
         buffer,
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         headers={"Content-Disposition": f'attachment; filename="{clean_name}.pptx"'}
+    )
+
+
+@router.get("/projects/{project_id}/export/csv")
+def export_project_scores_csv(
+    project: Project = Depends(verify_project_ownership),
+    db: Session = Depends(get_db)
+):
+    """
+    Exports a structured CSV of all idea evaluation scores, composite metrics,
+    and 10-dimension breakdowns for the project.
+    """
+    ideas = db.query(Idea).filter(Idea.project_id == project.id).all()
+    idea_ids = [i.id for i in ideas]
+    evaluations = db.query(Evaluation).filter(Evaluation.idea_id.in_(idea_ids)).all() if idea_ids else []
+
+    buffer = DocumentGenerator.to_evaluation_csv_buffer(project, ideas, evaluations)
+    clean_name = "".join([c if c.isalnum() or c in ("-", "_") else "_" for c in project.title])
+    return StreamingResponse(
+        buffer,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{clean_name}_evaluation_scores.csv"'}
     )
 
 

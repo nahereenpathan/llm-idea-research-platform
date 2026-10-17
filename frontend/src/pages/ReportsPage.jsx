@@ -7,26 +7,30 @@ import { useProject } from '../contexts/ProjectContext';
 import {
   FileText,
   Plus,
-  Download,
   Trash2,
   Edit2,
   Save,
   Sparkles,
-  Eye,
   FileCode,
   FileDown,
-  Printer
+  RefreshCw,
+  AlertCircle,
+  Table,
+  CheckCircle2,
+  Calendar,
+  Layers,
+  BookOpen
 } from 'lucide-react';
 
 const REPORT_TEMPLATES = [
-  { id: 'evaluation', name: 'Idea Evaluation Report', desc: 'Comprehensive viability & dimension diligence' },
-  { id: 'comparative', name: 'Comparative Analysis Report', desc: 'Side-by-side trade-offs between submitted candidates' },
-  { id: 'proposal', name: 'Research Proposal', desc: 'Academic grant or institutional thesis proposal' },
-  { id: 'abstract', name: 'Project Abstract & Scope', desc: 'Structured academic abstract with problem & findings' },
-  { id: 'feasibility', name: 'Technical Feasibility Report', desc: 'Architecture, engineering dependencies, and stack' },
-  { id: 'gap_report', name: 'Research Gap Report', desc: 'Prior art analysis and open research questions' },
-  { id: 'implementation', name: 'Implementation Plan', desc: 'Phased milestones, task breakdown, and MVP roadmap' },
-  { id: 'risk_assessment', name: 'Risk & Audit Assessment', desc: 'Technical, security, and market risk mitigations' }
+  { id: 'full_documentation', name: 'Comprehensive Research Whitepaper', desc: 'Complete 10-section dossier: problem, scores, papers, patents, gaps & roadmap' },
+  { id: 'evaluation', name: 'Idea Evaluation & Viability Report', desc: 'Detailed 10-dimension mathematical viability & friction analysis' },
+  { id: 'proposal', name: 'Academic & Venture Research Proposal', desc: 'Formal grant or institutional proposal with grounded literature' },
+  { id: 'gap_report', name: 'Literature Gap & Prior Art Report', desc: 'Prior art review, author limitations, and open research questions' },
+  { id: 'feasibility', name: 'Technical Feasibility & Architecture', desc: 'Database entities, API design specs, and recommended stack' },
+  { id: 'implementation', name: 'Implementation & MVP Roadmap', desc: 'Phased milestones, task breakdown, dependencies, and assumptions' },
+  { id: 'abstract', name: 'Academic Abstract & Scope Summary', desc: 'Structured academic abstract with methodology and outcomes' },
+  { id: 'risk_assessment', name: 'Risk, Security & Audit Assessment', desc: 'Multi-tenant isolation, compliance, and technical risk mitigations' }
 ];
 
 export default function ReportsPage() {
@@ -38,22 +42,25 @@ export default function ReportsPage() {
   const [activeReport, setActiveReport] = useState(null);
   const [ideas, setIdeas] = useState([]);
   const [selectedIdeaId, setSelectedIdeaId] = useState(null);
-  const [selectedTemplate, setSelectedTemplate] = useState('proposal');
+  const [selectedTemplate, setSelectedTemplate] = useState('full_documentation');
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
   const [editedMarkdown, setEditedMarkdown] = useState('');
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
   const [showNewModal, setShowNewModal] = useState(false);
 
   const fetchReports = async () => {
     try {
+      setErrorMessage(null);
       const proj = await projectService.getProject(projectId);
       setActiveProject(proj);
 
       const ideasList = await ideaService.listIdeas(projectId);
       setIdeas(ideasList);
-      if (ideasList.length > 0) setSelectedIdeaId(ideasList[0].id);
+      const selected = ideasList.find((i) => i.is_selected) || ideasList[0];
+      if (selected) setSelectedIdeaId(selected.id);
 
       const list = await reportService.listReports(projectId);
       setReports(list);
@@ -62,6 +69,7 @@ export default function ReportsPage() {
       }
     } catch (err) {
       console.error("Error loading reports:", err);
+      setErrorMessage("Failed to load project reports.");
     } finally {
       setLoading(false);
     }
@@ -79,8 +87,9 @@ export default function ReportsPage() {
   }, [projectId]);
 
   const handleGenerate = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     setGenerating(true);
+    setErrorMessage(null);
     try {
       const newRep = await reportService.generateReport(projectId, {
         idea_id: selectedIdeaId,
@@ -90,7 +99,28 @@ export default function ReportsPage() {
       await fetchReports();
       selectReport(newRep);
     } catch (err) {
-      alert("Failed to generate report.");
+      console.error("Report generation failed:", err);
+      setErrorMessage("Failed to generate research report. Please retry.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleRegenerateActive = async () => {
+    if (!activeReport) return;
+    setGenerating(true);
+    setErrorMessage(null);
+    try {
+      const regenerated = await reportService.generateReport(projectId, {
+        idea_id: activeReport.idea_id || selectedIdeaId,
+        report_type: activeReport.report_type,
+        title: activeReport.title
+      });
+      await fetchReports();
+      selectReport(regenerated);
+    } catch (err) {
+      console.error("Failed to regenerate report:", err);
+      setErrorMessage("Failed to refresh document. Please try again.");
     } finally {
       setGenerating(false);
     }
@@ -107,12 +137,12 @@ export default function ReportsPage() {
       setIsEditing(false);
       await fetchReports();
     } catch (err) {
-      alert("Failed to save changes.");
+      alert("Failed to save report changes.");
     }
   };
 
   const handleDelete = async (repId) => {
-    if (window.confirm("Delete this report?")) {
+    if (window.confirm("Permanently delete this report?")) {
       try {
         await reportService.deleteReport(repId);
         const filtered = reports.filter(r => r.id !== repId);
@@ -131,14 +161,21 @@ export default function ReportsPage() {
     window.open(url, '_blank');
   };
 
+  const downloadCsvScores = () => {
+    const url = reportService.getCsvExportUrl(projectId);
+    window.open(url, '_blank');
+  };
+
   if (loading) {
     return (
-      <div className="py-20 text-center text-slate-400 flex items-center justify-center gap-2">
-        <span className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-        Loading documentation suite...
+      <div className="py-24 text-center text-slate-400 flex flex-col items-center justify-center gap-3">
+        <span className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-xs font-medium">Loading documentation repository and export pipelines...</p>
       </div>
     );
   }
+
+  const evidenceStatus = activeReport?.content_json?.evidence_status || 'moderate';
 
   return (
     <div className="space-y-6">
@@ -146,20 +183,46 @@ export default function ReportsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-5">
         <div>
           <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-            <FileText className="w-5 h-5 text-brand-400" /> Research Reports & Documentation Generator
+            <FileText className="w-5 h-5 text-brand-400" /> Research Reports & Document Generator
           </h1>
           <p className="text-xs text-slate-400 mt-1">
-            Generate and edit publication-grade documentation with 1-click exports to PDF, DOCX, Markdown, and LaTeX.
+            Generate publication-grade whitepapers grounded in evaluations, literature, patents, and roadmaps with 1-click downloads.
           </p>
         </div>
 
-        <button
-          onClick={() => setShowNewModal(true)}
-          className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold flex items-center gap-2 shadow-md transition-all self-start sm:self-auto"
-        >
-          <Plus className="w-4 h-4" /> New Document
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={downloadCsvScores}
+            title="Download structured CSV of all idea scores"
+            className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 shadow-sm transition-all"
+          >
+            <Table className="w-4 h-4 text-emerald-400" /> Export Scores (CSV)
+          </button>
+
+          <button
+            onClick={() => setShowNewModal(true)}
+            className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold flex items-center gap-2 shadow-md transition-all"
+          >
+            <Plus className="w-4 h-4" /> New Document
+          </button>
+        </div>
       </div>
+
+      {/* Error Banner */}
+      {errorMessage && (
+        <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+            <span>{errorMessage}</span>
+          </div>
+          <button
+            onClick={() => handleGenerate(null)}
+            className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-[11px] font-semibold flex items-center gap-1"
+          >
+            <RefreshCw className="w-3 h-3" /> Retry
+          </button>
+        </div>
+      )}
 
       {/* Main Two Column View */}
       {reports.length === 0 ? (
@@ -167,7 +230,7 @@ export default function ReportsPage() {
           <FileText className="w-8 h-8 text-slate-600 mx-auto mb-2" />
           <p className="text-sm font-medium text-slate-300">No Reports Generated Yet</p>
           <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto mb-4">
-            Select a template like Research Proposal, Feasibility Report, or Academic Abstract to generate your first deliverable.
+            Select a template like Comprehensive Whitepaper, Research Proposal, or Feasibility Report to draft your first deliverable.
           </p>
           <button
             onClick={() => setShowNewModal(true)}
@@ -195,8 +258,10 @@ export default function ReportsPage() {
                   }`}
                 >
                   <div className="truncate pr-2">
-                    <p className="truncate text-xs">{rep.title}</p>
-                    <span className="text-[10px] text-slate-500 capitalize">{rep.report_type.replace('_', ' ')}</span>
+                    <p className="truncate text-xs font-medium">{rep.title}</p>
+                    <span className="text-[10px] text-slate-500 capitalize">
+                      {rep.report_type.replace('_', ' ')}
+                    </span>
                   </div>
                   <button
                     onClick={(e) => {
@@ -228,13 +293,42 @@ export default function ReportsPage() {
                   ) : (
                     <h2 className="text-sm font-bold text-white truncate">{activeReport.title}</h2>
                   )}
-                  <span className="text-[10px] text-slate-400 capitalize">
-                    Type: {activeReport.report_type.replace('_', ' ')} • Generated: {new Date(activeReport.created_at).toLocaleDateString()}
-                  </span>
+
+                  <div className="flex flex-wrap items-center gap-2 mt-1 text-[10px] text-slate-400">
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      {new Date(activeReport.created_at).toLocaleDateString()}
+                    </span>
+                    <span>•</span>
+                    <span
+                      className={`px-2 py-0.2 rounded-full border capitalize ${
+                        evidenceStatus === 'rich'
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                          : evidenceStatus === 'moderate'
+                          ? 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                          : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                      }`}
+                    >
+                      {evidenceStatus} Evidence
+                    </span>
+                    {activeReport.content_json?.saved_papers_count !== undefined && (
+                      <span>• {activeReport.content_json.saved_papers_count} papers cited</span>
+                    )}
+                  </div>
                 </div>
 
-                {/* Edit & Export Controls */}
-                <div className="flex items-center gap-2">
+                {/* Edit, Regenerate & Export Controls */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={handleRegenerateActive}
+                    disabled={generating}
+                    title="Regenerate this report with the latest database evidence"
+                    className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium flex items-center gap-1.5 border border-slate-700 transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${generating ? 'animate-spin' : ''}`} />
+                    {generating ? 'Regenerating...' : 'Regenerate'}
+                  </button>
+
                   {isEditing ? (
                     <button
                       onClick={handleSaveEdit}
@@ -255,28 +349,28 @@ export default function ReportsPage() {
                   <div className="flex items-center gap-1 pl-2 border-l border-slate-800">
                     <button
                       onClick={() => downloadExport('pdf')}
-                      title="Download PDF"
+                      title="Download PDF format"
                       className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-brand-600 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1 border border-slate-700 transition-colors"
                     >
                       <FileDown className="w-3.5 h-3.5 text-red-400" /> PDF
                     </button>
                     <button
                       onClick={() => downloadExport('docx')}
-                      title="Download DOCX"
+                      title="Download Microsoft Word format"
                       className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-brand-600 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1 border border-slate-700 transition-colors"
                     >
                       <FileDown className="w-3.5 h-3.5 text-blue-400" /> DOCX
                     </button>
                     <button
                       onClick={() => downloadExport('md')}
-                      title="Download Markdown"
+                      title="Download Markdown source"
                       className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-brand-600 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1 border border-slate-700 transition-colors"
                     >
                       <FileCode className="w-3.5 h-3.5 text-purple-400" /> MD
                     </button>
                     <button
                       onClick={() => downloadExport('latex')}
-                      title="Download LaTeX"
+                      title="Download LaTeX format"
                       className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-brand-600 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1 border border-slate-700 transition-colors"
                     >
                       <FileDown className="w-3.5 h-3.5 text-emerald-400" /> TeX
@@ -332,7 +426,7 @@ export default function ReportsPage() {
 
               <div>
                 <label className="block text-xs font-medium text-slate-300 mb-2">Select Template</label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[260px] overflow-y-auto pr-1">
                   {REPORT_TEMPLATES.map((tmpl) => (
                     <div
                       key={tmpl.id}
@@ -361,9 +455,16 @@ export default function ReportsPage() {
                 <button
                   type="submit"
                   disabled={generating}
-                  className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold shadow-md disabled:opacity-50"
+                  className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold shadow-md disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  {generating ? 'Drafting Document...' : 'Generate Document'}
+                  {generating ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                      Drafting Document...
+                    </>
+                  ) : (
+                    'Generate Document'
+                  )}
                 </button>
               </div>
             </form>

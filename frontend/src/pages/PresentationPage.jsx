@@ -8,16 +8,12 @@ import {
   Presentation,
   Plus,
   Trash2,
-  Copy,
-  Download,
   Palette,
-  Layout,
   Save,
   Sparkles,
-  ArrowRight,
-  MoveUp,
-  MoveDown,
-  Layers,
+  ExternalLink,
+  RefreshCw,
+  AlertCircle,
   FileDown
 } from 'lucide-react';
 
@@ -51,6 +47,7 @@ export default function PresentationPage() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [savingSlide, setSavingSlide] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
 
   // Active slide editor fields
   const [slideTitle, setSlideTitle] = useState('');
@@ -60,12 +57,14 @@ export default function PresentationPage() {
 
   const fetchDecks = async () => {
     try {
+      setErrorMessage(null);
       const proj = await projectService.getProject(projectId);
       setActiveProject(proj);
 
       const ideasList = await ideaService.listIdeas(projectId);
       setIdeas(ideasList);
-      if (ideasList.length > 0) setSelectedIdeaId(ideasList[0].id);
+      const selected = ideasList.find((i) => i.is_selected) || ideasList[0];
+      if (selected) setSelectedIdeaId(selected.id);
 
       const list = await presentationService.listPresentations(projectId);
       setPresentations(list);
@@ -74,6 +73,7 @@ export default function PresentationPage() {
       }
     } catch (err) {
       console.error("Error loading presentations:", err);
+      setErrorMessage("Failed to load presentation decks.");
     } finally {
       setLoading(false);
     }
@@ -107,6 +107,7 @@ export default function PresentationPage() {
 
   const handleGenerateDeck = async () => {
     setGenerating(true);
+    setErrorMessage(null);
     try {
       const newDeck = await presentationService.generatePresentation(projectId, {
         idea_id: selectedIdeaId,
@@ -116,7 +117,29 @@ export default function PresentationPage() {
       await fetchDecks();
       await loadPresentation(newDeck.id);
     } catch (err) {
-      alert("Failed to generate presentation deck.");
+      console.error("Failed to generate deck:", err);
+      setErrorMessage("Failed to generate presentation deck. Please try again.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleRegenerateCurrent = async () => {
+    if (!activePres) return;
+    setGenerating(true);
+    setErrorMessage(null);
+    try {
+      const regenerated = await presentationService.generatePresentation(projectId, {
+        idea_id: activePres.idea_id || selectedIdeaId,
+        theme: selectedTheme,
+        template_type: activePres.template_type,
+        title: activePres.title
+      });
+      await fetchDecks();
+      await loadPresentation(regenerated.id);
+    } catch (err) {
+      console.error("Failed to refresh presentation deck:", err);
+      setErrorMessage("Failed to regenerate presentation deck.");
     } finally {
       setGenerating(false);
     }
@@ -137,9 +160,7 @@ export default function PresentationPage() {
           bullets: slideBullets
         }
       });
-      // Reload deck to sync
       await loadPresentation(activePres.id);
-      alert("Slide saved!");
     } catch (err) {
       alert("Failed to save slide.");
     } finally {
@@ -200,14 +221,12 @@ export default function PresentationPage() {
 
   if (loading) {
     return (
-      <div className="py-20 text-center text-slate-400 flex items-center justify-center gap-2">
-        <span className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-        Loading PowerPoint presentation studio...
+      <div className="py-24 text-center text-slate-400 flex flex-col items-center justify-center gap-3">
+        <span className="w-6 h-6 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-xs font-medium">Loading PowerPoint presentation studio...</p>
       </div>
     );
   }
-
-  const themeConfig = THEMES.find(t => t.id === selectedTheme) || THEMES[0];
 
   return (
     <div className="space-y-6">
@@ -225,6 +244,16 @@ export default function PresentationPage() {
         {activePres && (
           <div className="flex items-center gap-2 self-start sm:self-auto">
             <button
+              onClick={handleRegenerateCurrent}
+              disabled={generating}
+              title="Regenerate all 10 slides from latest database records"
+              className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 shadow-sm transition-all disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${generating ? 'animate-spin' : ''}`} />
+              {generating ? 'Regenerating...' : 'Regenerate Deck'}
+            </button>
+
+            <button
               onClick={downloadPptx}
               className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md transition-all"
             >
@@ -233,6 +262,22 @@ export default function PresentationPage() {
           </div>
         )}
       </div>
+
+      {/* Error alert banner */}
+      {errorMessage && (
+        <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+            <span>{errorMessage}</span>
+          </div>
+          <button
+            onClick={handleGenerateDeck}
+            className="px-2.5 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-[11px] font-semibold flex items-center gap-1"
+          >
+            <RefreshCw className="w-3 h-3" /> Retry
+          </button>
+        </div>
+      )}
 
       {!activePres ? (
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 max-w-xl mx-auto space-y-5">
@@ -286,11 +331,16 @@ export default function PresentationPage() {
               className="w-full py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold flex items-center justify-center gap-2 shadow-md disabled:opacity-50"
             >
               {generating ? (
-                <span className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                <>
+                  <span className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                  Generating 10-Slide Deck...
+                </>
               ) : (
-                <Sparkles className="w-4 h-4" />
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  Generate Presentation Deck
+                </>
               )}
-              Generate Deck
             </button>
           </div>
         </div>
@@ -339,7 +389,7 @@ export default function PresentationPage() {
 
           {/* Presentation Studio Grid: Left Thumbnails + Center Slide Canvas + Right Editor */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 min-h-[580px]">
-            {/* Left Thumbnails List (2 cols) */}
+            {/* Left Thumbnails List (3 cols) */}
             <div className="lg:col-span-3 bg-slate-900 border border-slate-800 rounded-2xl p-3 flex flex-col space-y-2 h-[580px] overflow-y-auto">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-1 mb-1">
                 Slide Outline ({activePres.slides?.length || 0})
@@ -396,14 +446,60 @@ export default function PresentationPage() {
                   )}
                 </div>
 
-                <div className="my-auto space-y-2.5">
-                  {slideBullets.map((b, bIdx) => (
-                    <div key={bIdx} className="flex items-start gap-2.5 text-xs leading-relaxed">
-                      <span className="text-brand-400 font-bold">•</span>
-                      <span>{b}</span>
+                {/* Two-Column vs Bullets View */}
+                {currentSlide?.layout === 'two_column' ? (
+                  <div className="my-auto grid grid-cols-2 gap-4 text-xs">
+                    <div className="space-y-1.5 p-3 rounded-lg bg-slate-950/40 border border-slate-850">
+                      {(currentSlide.content_json?.left_column || []).map((item, idx) => (
+                        <div key={idx} className="flex items-start gap-1.5">
+                          <span className="text-brand-400 font-bold">•</span>
+                          <span>{item}</span>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                    <div className="space-y-1.5 p-3 rounded-lg bg-slate-950/40 border border-slate-850">
+                      {(currentSlide.content_json?.right_column || []).map((item, idx) => (
+                        <div key={idx} className="flex items-start gap-1.5">
+                          <span className="text-brand-400 font-bold">•</span>
+                          <span>{item}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="my-auto space-y-2">
+                    {slideBullets.map((b, bIdx) => (
+                      <div key={bIdx} className="flex items-start gap-2.5 text-xs leading-relaxed">
+                        <span className="text-brand-400 font-bold">•</span>
+                        <span>{b}</span>
+                      </div>
+                    ))}
+
+                    {/* Citations Preview if present */}
+                    {currentSlide?.content_json?.citations_data?.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-slate-800 text-[10px]">
+                        <span className="font-semibold text-brand-300 block mb-1">Grounded Source Citations:</span>
+                        <div className="space-y-1">
+                          {currentSlide.content_json.citations_data.slice(0, 3).map((cite, cIdx) => (
+                            <div key={cIdx} className="flex items-center justify-between text-slate-300">
+                              <span className="truncate">{cite.title}</span>
+                              {cite.url && (
+                                <a
+                                  href={cite.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-brand-400 hover:underline flex items-center gap-0.5 ml-2 shrink-0"
+                                >
+                                  Source <ExternalLink className="w-2.5 h-2.5" />
+                                </a>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="flex items-center justify-between text-[10px] text-slate-400 border-t border-slate-800/40 pt-2">
                   <span>IdeaLens Innovation Platform</span>

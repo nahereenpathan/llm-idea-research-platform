@@ -27,5 +27,9 @@ export const reportService = {
 
   getExportUrl(reportId, format = 'pdf') {
     return `/api/v1/reports/${reportId}/export?format=${format}`;
+  },
+
+  getCsvExportUrl(projectId) {
+    return `/api/v1/projects/${projectId}/export/csv`;
   }
 };

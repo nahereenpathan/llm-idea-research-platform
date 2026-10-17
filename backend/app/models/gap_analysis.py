@@ -24,3 +24,20 @@ class ResearchGapAnalysis(Base):
 
     project = relationship("Project", back_populates="gap_analyses")
     idea = relationship("Idea", back_populates="gap_analyses")
+
+    @property
+    def evidence_status(self):
+        cites_count = len(self.citations) if isinstance(self.citations, list) else 0
+        if cites_count >= 5:
+            return "rich"
+        elif cites_count >= 2:
+            return "moderate"
+        return "limited"
+
+    @property
+    def evidence_limitation_notice(self):
+        if self.evidence_status == "limited":
+            return "Analysis is based on limited or absent literature records. Save scholarly papers in the Research Workspace to ground research gaps in empirical evidence."
+        elif self.evidence_status == "moderate":
+            return "Grounded in moderate literature evidence. Additional papers can further refine research questions."
+        return None
