@@ -1,6 +1,6 @@
 from typing import Dict, List, Optional, Any
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class DimensionScores(BaseModel):
@@ -29,22 +29,28 @@ class DimensionWeights(BaseModel):
     evidence_quality: float = 1.0
 
 
+class EvaluationStartRequest(BaseModel):
+    idea_ids: Optional[List[int]] = None
+    weights: Optional[DimensionWeights] = None
+
+
 class EvaluationOut(BaseModel):
     id: int
     project_id: int
     idea_id: int
     dimension_scores: Dict[str, float]
+    effective_scores: Optional[Dict[str, float]] = None
     overall_score: float
     strengths: List[str]
     weaknesses: List[str]
     risks: List[str]
-    evidence_notes: List[str]
-    missing_information: List[str]
-    recommended_experiments: List[str]
+    assumptions: List[str] = []
+    evidence_notes: List[str] = []
+    missing_information: List[str] = []
+    recommended_experiments: List[str] = []
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ComparisonRequest(BaseModel):
@@ -61,11 +67,11 @@ class ComparisonResultOut(BaseModel):
     is_tie: int
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FullProjectEvaluationResponse(BaseModel):
     evaluations: List[EvaluationOut]
     comparison: Optional[ComparisonResultOut]
     ideas: List[Any]
+    formula_explanation: Optional[Dict[str, Any]] = None

@@ -28,6 +28,7 @@ class Evaluation(Base):
     strengths = Column(JSON, nullable=False, default=list)
     weaknesses = Column(JSON, nullable=False, default=list)
     risks = Column(JSON, nullable=False, default=list)
+    assumptions = Column(JSON, nullable=False, default=list)
     evidence_notes = Column(JSON, nullable=False, default=list)
     missing_information = Column(JSON, nullable=False, default=list)
     recommended_experiments = Column(JSON, nullable=False, default=list)

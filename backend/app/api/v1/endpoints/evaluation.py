@@ -9,7 +9,7 @@ from app.models.idea import Idea
 from app.models.evaluation import Evaluation, ComparisonResult
 from app.schemas.evaluation import (
     ComparisonRequest, ComparisonResultOut, EvaluationOut,
-    FullProjectEvaluationResponse, DimensionWeights
+    FullProjectEvaluationResponse, DimensionWeights, EvaluationStartRequest
 )
 from app.api.v1.deps import verify_project_ownership
 from app.services.ai.factory import get_llm_provider
@@ -20,27 +20,61 @@ router = APIRouter()
 
 @router.post("/projects/{project_id}/evaluate", response_model=FullProjectEvaluationResponse)
 def evaluate_project_ideas(
+    req: Optional[EvaluationStartRequest] = None,
     project: Project = Depends(verify_project_ownership),
     db: Session = Depends(get_db)
 ):
     """
-    Evaluates each idea in the project on 10 explicit dimensions, computes explainable composite scores,
+    Evaluates selected ideas (up to 3) in the project across 10 explicit dimensions.
+    Computes explainable composite scores, inverts cost & complexity, captures assumptions,
     identifies strengths/risks, and derives transparent comparative rankings.
     """
-    ideas = db.query(Idea).filter(Idea.project_id == project.id).all()
-    if not ideas:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot run evaluation: no ideas have been submitted to this project yet."
-        )
+    if req and req.idea_ids:
+        if len(req.idea_ids) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Must specify at least one idea to evaluate."
+            )
+        if len(req.idea_ids) > 3:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot evaluate more than 3 candidate ideas simultaneously."
+            )
+        ideas = db.query(Idea).filter(
+            Idea.project_id == project.id,
+            Idea.id.in_(req.idea_ids)
+        ).all()
+        if len(ideas) != len(req.idea_ids):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="One or more specified idea IDs do not belong to this project."
+            )
+    else:
+        ideas = db.query(Idea).filter(Idea.project_id == project.id).all()
+        if not ideas:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot run evaluation: no ideas have been submitted to this project yet."
+            )
+        if len(ideas) > 3:
+            ideas = ideas[:3]
 
+    weights_dict = req.weights.model_dump() if (req and req.weights) else DimensionWeights().model_dump()
     llm = get_llm_provider()
 
-    # Clear previous evaluations for a fresh run
-    db.query(Evaluation).filter(Evaluation.project_id == project.id).delete()
-    db.query(ComparisonResult).filter(ComparisonResult.project_id == project.id).delete()
+    # Clear previous evaluations for this project for a fresh comparison run
+    db.query(Evaluation).filter(
+        Evaluation.project_id == project.id
+    ).delete(synchronize_session=False)
+    db.query(ComparisonResult).filter(ComparisonResult.project_id == project.id).delete(synchronize_session=False)
 
     created_evals = []
+    standard_dims = [
+        "problem_significance", "target_user_clarity", "technical_feasibility",
+        "implementation_complexity", "estimated_development_cost", "adoption_potential",
+        "competitive_landscape", "novelty", "security_privacy_ethics", "evidence_quality"
+    ]
+
     for idea in ideas:
         prompt = (
             f"Idea Evaluation Request:\n"
@@ -54,46 +88,40 @@ def evaluate_project_ideas(
             f"Constraints: {idea.constraints or 'None specified'}\n"
             f"Budget: {idea.estimated_budget or 'Not specified'}\n"
             f"Technical Preferences: {idea.technical_preferences or 'None'}\n\n"
-            "Score on 1-10 scale for:\n"
-            "1. problem_significance\n"
-            "2. target_user_clarity\n"
-            "3. technical_feasibility\n"
-            "4. implementation_complexity\n"
-            "5. estimated_development_cost\n"
-            "6. adoption_potential\n"
-            "7. competitive_landscape\n"
-            "8. novelty\n"
-            "9. security_privacy_ethics\n"
-            "10. evidence_quality\n"
-            "Also return strengths, weaknesses, risks, evidence_notes, missing_information, and recommended_experiments."
+            "Score on 1.0-10.0 scale for:\n"
+            "1. problem_significance (1 = trivial, 10 = critical urgent problem)\n"
+            "2. target_user_clarity (1 = vague, 10 = razor sharp persona)\n"
+            "3. technical_feasibility (1 = speculative breakthrough needed, 10 = mature proven stack)\n"
+            "4. implementation_complexity (1 = low complexity/easy, 10 = extreme technical hurdles)\n"
+            "5. estimated_development_cost (1 = minimal budget, 10 = capital intensive)\n"
+            "6. adoption_potential (1 = high resistance, 10 = frictionless adoption)\n"
+            "7. competitive_landscape (1 = crowded commodity, 10 = strong defensibility)\n"
+            "8. novelty (1 = copycat, 10 = distinctive innovation)\n"
+            "9. security_privacy_ethics (1 = severe risks, 10 = safe & compliant)\n"
+            "10. evidence_quality (1 = purely speculative, 10 = verified user data)\n\n"
+            "Return JSON with: dimension_scores, strengths, weaknesses, risks, assumptions, "
+            "evidence_notes, missing_information, and recommended_experiments."
         )
 
         sys_prompt = (
             "You are an expert technology diligence assessor and venture research architect. "
             "Evaluate realistically. Never claim AI can predict guaranteed future success. "
-            "Distinguish evidence-backed assessments from assumptions."
+            "Distinguish evidence-backed assessments from speculative assumptions."
         )
 
         try:
             eval_data = llm.generate_structured(prompt, sys_prompt)
         except Exception:
-            # Fallback to local heuristic evaluator if external provider errors
             from app.services.ai.heuristic_provider import HeuristicFallbackProvider
             eval_data = HeuristicFallbackProvider().generate_structured(prompt, sys_prompt)
 
         dim_scores = eval_data.get("dimension_scores", {})
-        # Ensure all 10 dimensions exist with valid float values
-        standard_dims = [
-            "problem_significance", "target_user_clarity", "technical_feasibility",
-            "implementation_complexity", "estimated_development_cost", "adoption_potential",
-            "competitive_landscape", "novelty", "security_privacy_ethics", "evidence_quality"
-        ]
         clean_dims = {}
         for d in standard_dims:
             val = dim_scores.get(d, 7.0)
             clean_dims[d] = max(1.0, min(10.0, float(val)))
 
-        overall_score = ScoringEngine.calculate_overall_score(clean_dims)
+        overall_score = ScoringEngine.calculate_overall_score(clean_dims, weights_dict)
 
         evaluation = Evaluation(
             project_id=project.id,
@@ -103,6 +131,7 @@ def evaluate_project_ideas(
             strengths=eval_data.get("strengths", ["Clear target problem."]),
             weaknesses=eval_data.get("weaknesses", ["Requires validation of willingness to pay."]),
             risks=eval_data.get("risks", ["Adoption velocity risk."]),
+            assumptions=eval_data.get("assumptions", ["Assumes standard API availability."]),
             evidence_notes=eval_data.get("evidence_notes", ["Based on submitted specification."]),
             missing_information=eval_data.get("missing_information", ["User acquisition benchmarks."]),
             recommended_experiments=eval_data.get("recommended_experiments", ["Prototype testing."]),
@@ -116,12 +145,11 @@ def evaluate_project_ideas(
         db.refresh(ev)
 
     # Perform comparison
-    default_weights = DimensionWeights().model_dump()
-    comp_result_data = ScoringEngine.compare_ideas(ideas, created_evals, default_weights)
+    comp_result_data = ScoringEngine.compare_ideas(ideas, created_evals, weights_dict)
 
     comp_result = ComparisonResult(
         project_id=project.id,
-        configured_weights=default_weights,
+        configured_weights=weights_dict,
         recommended_idea_id=comp_result_data.get("recommended_idea_id"),
         recommendation_rationale=comp_result_data.get("recommendation_rationale", ""),
         tradeoff_analysis=comp_result_data.get("tradeoff_analysis", {}),
@@ -132,10 +160,31 @@ def evaluate_project_ideas(
     db.commit()
     db.refresh(comp_result)
 
+    # Attach effective scores to output evaluations
+    eval_outs = []
+    for ev in created_evals:
+        eff_scores = {
+            dim: ScoringEngine.get_effective_dimension_score(dim, raw)
+            for dim, raw in ev.dimension_scores.items()
+        }
+        ev_out = EvaluationOut.model_validate(ev)
+        ev_out.effective_scores = eff_scores
+        eval_outs.append(ev_out)
+
+    sample_breakdown = ScoringEngine.get_scoring_breakdown(
+        created_evals[0].dimension_scores if created_evals else {},
+        weights_dict
+    )
+
     return FullProjectEvaluationResponse(
-        evaluations=[EvaluationOut.model_validate(e) for e in created_evals],
+        evaluations=eval_outs,
         comparison=ComparisonResultOut.model_validate(comp_result),
-        ideas=[{"id": i.id, "title": i.title, "is_selected": i.is_selected} for i in ideas]
+        ideas=[{"id": i.id, "title": i.title, "is_selected": i.is_selected} for i in ideas],
+        formula_explanation={
+            "formula": sample_breakdown.get("formula_explanation", ""),
+            "inverted_dimensions": list(ScoringEngine.INVERTED_DIMENSIONS),
+            "disclaimer": "Ratings are heuristic diligence estimates designed to guide validation experiments, not objective guarantees of market success."
+        }
     )
 
 
@@ -149,10 +198,31 @@ def get_project_evaluations(
     comp = db.query(ComparisonResult).filter(ComparisonResult.project_id == project.id).order_by(ComparisonResult.created_at.desc()).first()
     ideas = db.query(Idea).filter(Idea.project_id == project.id).all()
 
+    eval_outs = []
+    for ev in evals:
+        eff_scores = {
+            dim: ScoringEngine.get_effective_dimension_score(dim, raw)
+            for dim, raw in ev.dimension_scores.items()
+        }
+        ev_out = EvaluationOut.model_validate(ev)
+        ev_out.effective_scores = eff_scores
+        eval_outs.append(ev_out)
+
+    weights_dict = comp.configured_weights if comp else DimensionWeights().model_dump()
+    sample_breakdown = ScoringEngine.get_scoring_breakdown(
+        evals[0].dimension_scores if evals else {},
+        weights_dict
+    )
+
     return FullProjectEvaluationResponse(
-        evaluations=[EvaluationOut.model_validate(e) for e in evals],
+        evaluations=eval_outs,
         comparison=ComparisonResultOut.model_validate(comp) if comp else None,
-        ideas=[{"id": i.id, "title": i.title, "is_selected": i.is_selected} for i in ideas]
+        ideas=[{"id": i.id, "title": i.title, "is_selected": i.is_selected} for i in ideas],
+        formula_explanation={
+            "formula": sample_breakdown.get("formula_explanation", ""),
+            "inverted_dimensions": list(ScoringEngine.INVERTED_DIMENSIONS),
+            "disclaimer": "Ratings are heuristic diligence estimates designed to guide validation experiments, not objective guarantees of market success."
+        }
     )
 
 
@@ -174,8 +244,12 @@ def recalculate_recommendation_with_weights(
             detail="Project has not been evaluated yet. Run evaluate first."
         )
 
+    # Filter ideas to those that have evaluations
+    eval_idea_ids = {e.idea_id for e in evals}
+    evaluated_ideas = [i for i in ideas if i.id in eval_idea_ids]
+
     weights_dict = req.weights.model_dump() if req.weights else DimensionWeights().model_dump()
-    comp_result_data = ScoringEngine.compare_ideas(ideas, evals, weights_dict)
+    comp_result_data = ScoringEngine.compare_ideas(evaluated_ideas, evals, weights_dict)
 
     comp_result = ComparisonResult(
         project_id=project.id,

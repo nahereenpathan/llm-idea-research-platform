@@ -18,20 +18,70 @@ import {
   ChevronUp,
   Info,
   Check,
-  Scale
+  Scale,
+  RefreshCw,
+  Lightbulb,
+  ShieldAlert,
+  HelpCircle,
+  FlaskConical,
+  BookOpen,
+  ArrowRight,
+  TrendingDown,
+  TrendingUp,
+  SlidersHorizontal
 } from 'lucide-react';
 
-const DIMENSION_LABELS = {
-  problem_significance: 'Problem Significance',
-  target_user_clarity: 'Target-User Clarity',
-  technical_feasibility: 'Technical Feasibility',
-  implementation_complexity: 'Implementation Simplicity',
-  estimated_development_cost: 'Capital Efficiency',
-  adoption_potential: 'Adoption Potential',
-  competitive_landscape: 'Competitive Differentiation',
-  novelty: 'Novelty & Prior Work Distance',
-  security_privacy_ethics: 'Security, Privacy & Ethics',
-  evidence_quality: 'Evidence Quality & Confidence'
+const DIMENSION_CONFIG = {
+  problem_significance: {
+    label: 'Problem Significance',
+    type: 'beneficial',
+    tip: 'Urgency and economic magnitude of the pain point.'
+  },
+  target_user_clarity: {
+    label: 'Target-User Clarity',
+    type: 'beneficial',
+    tip: 'Specificity of buyer persona and day-to-day workflow.'
+  },
+  technical_feasibility: {
+    label: 'Technical Feasibility',
+    type: 'beneficial',
+    tip: 'Achievability using existing technology without fundamental R&D breakthroughs.'
+  },
+  implementation_complexity: {
+    label: 'Implementation Complexity',
+    type: 'frictional',
+    tip: 'Raw score measures architectural friction (10 = highest complexity). Inverted in scoring so lower complexity yields higher feasibility.'
+  },
+  estimated_development_cost: {
+    label: 'Estimated Development Cost',
+    type: 'frictional',
+    tip: 'Raw score measures capital requirement (10 = highest cost). Inverted in scoring so lower cost yields higher capital efficiency.'
+  },
+  adoption_potential: {
+    label: 'Adoption & Validation Potential',
+    type: 'beneficial',
+    tip: 'User willingness to switch, onboarding ease, and distribution momentum.'
+  },
+  competitive_landscape: {
+    label: 'Competitive Differentiation',
+    type: 'beneficial',
+    tip: 'Defensibility against existing market alternatives and substitutes.'
+  },
+  novelty: {
+    label: 'Novelty & Prior-Work Distance',
+    type: 'beneficial',
+    tip: 'Degree of divergence from published literature and existing commercial products.'
+  },
+  security_privacy_ethics: {
+    label: 'Security, Privacy & Ethics',
+    type: 'beneficial',
+    tip: 'Manageability of regulatory compliance (GDPR/HIPAA), attack surfaces, and ethical alignment.'
+  },
+  evidence_quality: {
+    label: 'Evidence Quality & Confidence',
+    type: 'beneficial',
+    tip: 'Level of factual backing from discovery or citations vs speculative assumption.'
+  }
 };
 
 export default function IdeaComparison() {
@@ -43,10 +93,15 @@ export default function IdeaComparison() {
   const [ideas, setIdeas] = useState([]);
   const [evaluations, setEvaluations] = useState([]);
   const [comparison, setComparison] = useState(null);
+  const [formulaMeta, setFormulaMeta] = useState(null);
   const [loading, setLoading] = useState(true);
   const [evaluating, setEvaluating] = useState(false);
+  const [evalError, setEvalError] = useState('');
   const [showIdeaModal, setShowIdeaModal] = useState(false);
   const [showWeightSliders, setShowWeightSliders] = useState(false);
+  const [showMethodology, setShowMethodology] = useState(false);
+  const [selectedIdeaIds, setSelectedIdeaIds] = useState([]);
+  const [activeTab, setActiveTab] = useState('matrix'); // 'matrix' | 'deepdive'
 
   // Idea Form State
   const [ideaForm, setIdeaForm] = useState({
@@ -78,6 +133,7 @@ export default function IdeaComparison() {
   });
 
   const fetchData = async () => {
+    setEvalError('');
     try {
       const projData = await projectService.getProject(projectId);
       setProject(projData);
@@ -85,15 +141,20 @@ export default function IdeaComparison() {
 
       const ideasData = await ideaService.listIdeas(projectId);
       setIdeas(ideasData);
+      setSelectedIdeaIds(ideasData.map((i) => i.id));
 
       const evalData = await evaluationService.getEvaluation(projectId);
       setEvaluations(evalData.evaluations || []);
       setComparison(evalData.comparison || null);
+      if (evalData.formula_explanation) {
+        setFormulaMeta(evalData.formula_explanation);
+      }
       if (evalData.comparison?.configured_weights) {
         setWeights(evalData.comparison.configured_weights);
       }
     } catch (err) {
       console.error("Error loading comparison data:", err);
+      setEvalError(err.response?.data?.detail || 'Failed to load project comparison data.');
     } finally {
       setLoading(false);
     }
@@ -102,6 +163,21 @@ export default function IdeaComparison() {
   useEffect(() => {
     fetchData();
   }, [projectId]);
+
+  const handleToggleSelectIdeaForEval = (ideaId) => {
+    setSelectedIdeaIds((prev) => {
+      if (prev.includes(ideaId)) {
+        if (prev.length === 1) return prev; // Keep at least one selected
+        return prev.filter((id) => id !== ideaId);
+      } else {
+        if (prev.length >= 3) {
+          alert('You can compare at most 3 candidate ideas at a time.');
+          return prev;
+        }
+        return [...prev, ideaId];
+      }
+    });
+  };
 
   const handleIdeaSubmit = async (e) => {
     e.preventDefault();
@@ -127,7 +203,7 @@ export default function IdeaComparison() {
       });
       await fetchData();
     } catch (err) {
-      setFormError(err.response?.data?.detail || 'Failed to submit idea. Please verify fields.');
+      setFormError(err.response?.data?.detail || 'Failed to submit idea. Please verify required fields.');
     }
   };
 
@@ -153,12 +229,21 @@ export default function IdeaComparison() {
 
   const handleRunEvaluation = async () => {
     setEvaluating(true);
+    setEvalError('');
     try {
-      const res = await evaluationService.evaluateProject(projectId);
+      const payload = {
+        idea_ids: selectedIdeaIds.length > 0 ? selectedIdeaIds : undefined,
+        weights: weights
+      };
+      const res = await evaluationService.evaluateProject(projectId, payload);
       setEvaluations(res.evaluations || []);
       setComparison(res.comparison || null);
+      if (res.formula_explanation) {
+        setFormulaMeta(res.formula_explanation);
+      }
     } catch (err) {
-      alert(err.response?.data?.detail || 'Evaluation failed.');
+      console.error("Evaluation error:", err);
+      setEvalError(err.response?.data?.detail || 'Evaluation failed. Please try again or check provider settings.');
     } finally {
       setEvaluating(false);
     }
@@ -181,32 +266,40 @@ export default function IdeaComparison() {
 
   if (loading) {
     return (
-      <div className="py-20 text-center text-slate-400 flex items-center justify-center gap-2">
-        <span className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
-        Loading idea workspace...
+      <div className="py-24 text-center text-slate-400 flex flex-col items-center justify-center gap-3">
+        <span className="w-8 h-8 border-3 border-brand-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm font-medium">Loading idea evaluation workspace...</p>
       </div>
     );
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 max-w-7xl mx-auto">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-5">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-              <GitCompare className="w-5 h-5 text-brand-400" /> Multi-Idea Comparison & Dilemma Solver
+              <GitCompare className="w-5 h-5 text-brand-400" /> Multi-Idea Evaluation & Scoring Engine
             </h1>
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
               {ideas.length}/3 ideas
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            Project: <span className="text-slate-200 font-medium">{project?.title}</span> • Submit up to 3 candidate ideas for side-by-side 10-dimension evaluation.
+            Project: <span className="text-slate-200 font-medium">{project?.title}</span> • 10-dimension explainable scoring with inverse cost/complexity calibration.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={() => setShowMethodology(!showMethodology)}
+            className="px-3 py-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-300 text-xs font-medium flex items-center gap-1.5 border border-slate-700 transition-colors"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-brand-400" />
+            {showMethodology ? 'Hide Methodology' : 'Scoring Formula'}
+          </button>
+
           {ideas.length < 3 && (
             <button
               onClick={() => setShowIdeaModal(true)}
@@ -219,151 +312,249 @@ export default function IdeaComparison() {
           {ideas.length > 0 && (
             <button
               onClick={handleRunEvaluation}
-              disabled={evaluating}
+              disabled={evaluating || selectedIdeaIds.length === 0}
               className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold flex items-center gap-2 shadow-lg shadow-brand-600/20 transition-all disabled:opacity-50"
             >
               {evaluating ? (
-                <span className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                <>
+                  <span className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                  <span>Evaluating ({selectedIdeaIds.length} ideas)...</span>
+                </>
               ) : (
-                <Sparkles className="w-4 h-4" />
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  <span>{evaluations.length > 0 ? `Re-Evaluate (${selectedIdeaIds.length} Selected)` : `Evaluate Ideas (${selectedIdeaIds.length} Selected)`}</span>
+                </>
               )}
-              {evaluations.length > 0 ? 'Re-Evaluate Ideas' : 'Evaluate Ideas (10 Dimensions)'}
             </button>
           )}
         </div>
       </div>
 
+      {/* Error Alert with Retry State */}
+      {evalError && (
+        <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-between gap-4 text-red-300 text-xs">
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+            <div>
+              <p className="font-semibold text-red-200">Evaluation Error</p>
+              <p className="text-red-300/90 mt-0.5">{evalError}</p>
+            </div>
+          </div>
+          <button
+            onClick={handleRunEvaluation}
+            disabled={evaluating}
+            className="px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-200 font-semibold flex items-center gap-1.5 shrink-0 transition-colors"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Retry
+          </button>
+        </div>
+      )}
+
+      {/* Scoring Methodology & Formula Drawer */}
+      {showMethodology && (
+        <div className="p-5 rounded-2xl bg-slate-900 border border-brand-500/30 shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white flex items-center gap-2">
+              <BookOpen className="w-4 h-4 text-brand-400" /> Deterministic Scoring Formula & Inversion Rules
+            </h3>
+            <span className="text-[11px] font-mono text-brand-300 bg-brand-500/10 px-2 py-0.5 rounded border border-brand-500/20">
+              Normalized Range: 0–100
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-300 leading-relaxed pt-2 border-t border-slate-800">
+            <div className="space-y-2">
+              <p className="font-semibold text-slate-200">Mathematical Definition:</p>
+              <pre className="p-3 bg-slate-950 rounded-xl border border-slate-800 font-mono text-[11px] text-brand-300 overflow-x-auto">
+                Composite Score = [Sum(w_i * S_eff,i) / Sum(w_i)] * 10
+              </pre>
+              <p className="text-[11px] text-slate-400">
+                Each dimension has an effective rating <code className="text-slate-200">S_eff,i</code> on a 1.0–10.0 scale, multiplied by user priority weight <code className="text-slate-200">w_i</code>.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <p className="font-semibold text-amber-300 flex items-center gap-1">
+                <AlertTriangle className="w-3.5 h-3.5" /> Complexity & Cost Inversion Rule:
+              </p>
+              <p className="text-[11px] text-slate-300">
+                To prevent high raw complexity or high costs from erroneously increasing an idea's score, <strong>Implementation Complexity</strong> and <strong>Estimated Development Cost</strong> are inverted:
+              </p>
+              <p className="p-2 bg-slate-950 rounded-lg border border-slate-800 font-mono text-[11px] text-amber-200">
+                S_eff,i = 11.0 - Raw_Score (e.g. Raw 2.0 &rarr; Eff 9.0; Raw 9.0 &rarr; Eff 2.0)
+              </p>
+              <p className="text-[10px] text-slate-400">
+                Ratings are diligence estimates designed to guide validation experiments, not guarantees of commercial outcome.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Candidate Ideas Submission Cards Grid */}
       {ideas.length === 0 ? (
-        <div className="text-center py-16 bg-slate-900/40 border border-dashed border-slate-800 rounded-2xl">
-          <Layers className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-          <h3 className="text-base font-semibold text-slate-200">No Ideas Submitted Yet</h3>
-          <p className="text-xs text-slate-400 max-w-md mx-auto mt-1 mb-5">
-            Submit your first idea candidate below. You can compare up to three alternatives side-by-side.
+        <div className="text-center py-20 bg-slate-900/40 border border-dashed border-slate-800 rounded-3xl">
+          <Layers className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+          <h3 className="text-base font-semibold text-slate-200">No Candidate Ideas Submitted Yet</h3>
+          <p className="text-xs text-slate-400 max-w-md mx-auto mt-1 mb-6 leading-relaxed">
+            Submit up to three candidate ideas for this research project. The platform will compare them across 10 explainable dimensions and identify the best candidate.
           </p>
           <button
             onClick={() => setShowIdeaModal(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold shadow-md"
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold shadow-lg shadow-brand-600/20"
           >
-            <Plus className="w-4 h-4" /> Submit First Idea
+            <Plus className="w-4 h-4" /> Submit First Candidate Idea
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {ideas.map((idea, idx) => {
-            const ev = getEvaluationForIdea(idea.id);
-            const isWinner = comparison?.recommended_idea_id === idea.id;
+        <div className="space-y-4">
+          <div className="flex items-center justify-between text-xs text-slate-400">
+            <span>Select candidate ideas to include in evaluation:</span>
+            <span className="text-[11px] text-slate-400 font-medium">
+              {selectedIdeaIds.length} of {ideas.length} selected for comparison
+            </span>
+          </div>
 
-            return (
-              <div
-                key={idea.id}
-                className={`bg-slate-900/90 border rounded-2xl p-5 flex flex-col justify-between transition-all relative ${
-                  isWinner
-                    ? 'border-brand-500/80 shadow-lg shadow-brand-500/10'
-                    : idea.is_selected
-                    ? 'border-emerald-500/60'
-                    : 'border-slate-800'
-                }`}
-              >
-                {/* Badges */}
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 px-2 py-0.5 rounded bg-slate-800 border border-slate-700">
-                    Candidate #{idx + 1}
-                  </span>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {ideas.map((idea, idx) => {
+              const ev = getEvaluationForIdea(idea.id);
+              const isWinner = comparison?.recommended_idea_id === idea.id;
+              const isChecked = selectedIdeaIds.includes(idea.id);
 
-                  <div className="flex items-center gap-2">
-                    {isWinner && (
-                      <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <Award className="w-3 h-3" /> Top Recommended
+              return (
+                <div
+                  key={idea.id}
+                  className={`bg-slate-900/90 border rounded-2xl p-5 flex flex-col justify-between transition-all relative ${
+                    isWinner
+                      ? 'border-brand-500/80 shadow-lg shadow-brand-500/10'
+                      : idea.is_selected
+                      ? 'border-emerald-500/60'
+                      : 'border-slate-800'
+                  }`}
+                >
+                  {/* Top Bar: Selector & Badges */}
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        onChange={() => handleToggleSelectIdeaForEval(idea.id)}
+                        className="w-4 h-4 rounded bg-slate-950 border-slate-700 text-brand-600 focus:ring-brand-500"
+                      />
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 px-2 py-0.5 rounded bg-slate-800 border border-slate-700">
+                        Candidate #{idx + 1}
                       </span>
-                    )}
-                    {idea.is_selected && (
-                      <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <Check className="w-3 h-3" /> Active Plan
-                      </span>
-                    )}
-                    <button
-                      onClick={() => handleDeleteIdea(idea.id)}
-                      title="Delete idea"
-                      className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-slate-800"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
+                    </label>
 
-                {/* Idea Details */}
-                <div className="space-y-3">
-                  <h3 className="text-base font-bold text-white line-clamp-1">{idea.title}</h3>
-
-                  <div className="space-y-1.5 text-xs">
-                    <div>
-                      <span className="text-slate-400 font-medium">Problem:</span>
-                      <p className="text-slate-300 text-[11px] line-clamp-2 mt-0.5 leading-relaxed">{idea.problem_statement}</p>
-                    </div>
-                    <div>
-                      <span className="text-slate-400 font-medium">Proposed Solution:</span>
-                      <p className="text-slate-300 text-[11px] line-clamp-2 mt-0.5 leading-relaxed">{idea.proposed_solution}</p>
-                    </div>
-                    <div className="flex items-center gap-2 text-[11px] text-slate-400 pt-1">
-                      <span>Target: <strong className="text-slate-300">{idea.target_audience}</strong></span>
-                      <span>•</span>
-                      <span>Industry: <strong className="text-slate-300">{idea.industry}</strong></span>
+                    <div className="flex items-center gap-1.5">
+                      {isWinner && (
+                        <span className="text-[10px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <Award className="w-3 h-3" /> Top Pick
+                        </span>
+                      )}
+                      {idea.is_selected && (
+                        <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <Check className="w-3 h-3" /> Active Plan
+                        </span>
+                      )}
+                      <button
+                        onClick={() => handleDeleteIdea(idea.id)}
+                        title="Delete candidate idea"
+                        className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-slate-800 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </div>
 
-                  {/* Evaluation Score Pill */}
-                  {ev && (
-                    <div className="mt-4 p-3 rounded-xl bg-slate-950/80 border border-slate-800">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-xs font-semibold text-slate-300">Composite Score</span>
-                        <span className="text-sm font-extrabold text-brand-400">{ev.overall_score}/100</span>
-                      </div>
-                      <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-                        <div
-                          className="bg-gradient-to-r from-brand-600 to-brand-400 h-full rounded-full transition-all"
-                          style={{ width: `${ev.overall_score}%` }}
-                        />
-                      </div>
+                  {/* Idea Details */}
+                  <div className="space-y-3">
+                    <h3 className="text-base font-bold text-white line-clamp-1">{idea.title}</h3>
 
-                      {/* Mini strengths & risks */}
-                      <div className="mt-3 space-y-1.5 text-[11px]">
-                        <p className="text-emerald-400 line-clamp-1">
-                          <strong>+ Strength:</strong> {ev.strengths?.[0] || 'Clear audience'}
-                        </p>
-                        <p className="text-amber-400 line-clamp-1">
-                          <strong>! Risk:</strong> {ev.risks?.[0] || 'Adoption hurdles'}
-                        </p>
+                    <div className="space-y-2 text-xs">
+                      <div>
+                        <span className="text-slate-400 font-medium">Problem Statement:</span>
+                        <p className="text-slate-300 text-[11px] line-clamp-2 mt-0.5 leading-relaxed">{idea.problem_statement}</p>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 font-medium">Proposed Solution:</span>
+                        <p className="text-slate-300 text-[11px] line-clamp-2 mt-0.5 leading-relaxed">{idea.proposed_solution}</p>
+                      </div>
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400 pt-1 flex-wrap">
+                        <span>Target: <strong className="text-slate-300">{idea.target_audience}</strong></span>
+                        <span>•</span>
+                        <span>Industry: <strong className="text-slate-300">{idea.industry || 'General'}</strong></span>
                       </div>
                     </div>
-                  )}
-                </div>
 
-                {/* Actions */}
-                <div className="mt-5 pt-3 border-t border-slate-800 flex items-center justify-between">
-                  {!idea.is_selected ? (
-                    <button
-                      onClick={() => handleSelectIdea(idea.id)}
-                      className="text-xs text-brand-400 hover:text-brand-300 font-medium flex items-center gap-1"
+                    {/* Evaluation Score Pill */}
+                    {ev ? (
+                      <div className="mt-4 p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-slate-300">Composite Score</span>
+                          <span className="text-base font-extrabold text-brand-400 font-mono">{ev.overall_score}/100</span>
+                        </div>
+                        <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                          <div
+                            className="bg-gradient-to-r from-brand-600 via-brand-500 to-emerald-400 h-full rounded-full transition-all duration-500"
+                            style={{ width: `${ev.overall_score}%` }}
+                          />
+                        </div>
+
+                        {/* Friction Callout */}
+                        <div className="pt-1 flex items-center justify-between text-[10px] text-slate-400 border-t border-slate-900">
+                          <span>
+                            Complexity: <strong className="text-slate-300">{ev.dimension_scores?.implementation_complexity || 7}/10</strong> (Eff: <span className="text-brand-400 font-semibold">{ev.effective_scores?.implementation_complexity || 4}/10</span>)
+                          </span>
+                          <span>
+                            Cost: <strong className="text-slate-300">{ev.dimension_scores?.estimated_development_cost || 7}/10</strong> (Eff: <span className="text-brand-400 font-semibold">{ev.effective_scores?.estimated_development_cost || 4}/10</span>)
+                          </span>
+                        </div>
+
+                        {/* Strengths & Risks Highlights */}
+                        <div className="space-y-1 text-[11px] pt-1">
+                          <p className="text-emerald-400 line-clamp-1 flex items-center gap-1">
+                            <span className="font-semibold">+</span> {ev.strengths?.[0] || 'Clear audience'}
+                          </p>
+                          <p className="text-rose-400 line-clamp-1 flex items-center gap-1">
+                            <span className="font-semibold">!</span> {ev.risks?.[0] || 'Adoption hurdles'}
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="mt-4 p-3 rounded-xl bg-slate-950/40 border border-dashed border-slate-800 text-center">
+                        <p className="text-[11px] text-slate-500">Not yet evaluated in current run.</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="mt-5 pt-3 border-t border-slate-800 flex items-center justify-between">
+                    {!idea.is_selected ? (
+                      <button
+                        onClick={() => handleSelectIdea(idea.id)}
+                        className="text-xs text-brand-400 hover:text-brand-300 font-medium flex items-center gap-1 transition-colors"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Select for Project Roadmap
+                      </button>
+                    ) : (
+                      <span className="text-xs text-emerald-400 font-semibold flex items-center gap-1">
+                        <Check className="w-3.5 h-3.5" /> Selected Candidate
+                      </span>
+                    )}
+
+                    <Link
+                      to={`/projects/${projectId}/roadmap`}
+                      className="text-xs text-slate-400 hover:text-white flex items-center gap-1 transition-colors"
                     >
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Select for Next Steps
-                    </button>
-                  ) : (
-                    <span className="text-xs text-emerald-400 font-medium flex items-center gap-1">
-                      <Check className="w-3.5 h-3.5" /> Selected Candidate
-                    </span>
-                  )}
-
-                  <Link
-                    to={`/projects/${projectId}/roadmap`}
-                    className="text-xs text-slate-400 hover:text-white"
-                  >
-                    View Roadmap &rarr;
-                  </Link>
+                      Roadmap <ArrowRight className="w-3 h-3" />
+                    </Link>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -371,31 +562,57 @@ export default function IdeaComparison() {
       {comparison && (
         <div className={`p-6 rounded-2xl border ${
           comparison.is_tie
-            ? 'bg-amber-500/5 border-amber-500/20'
-            : 'bg-brand-500/5 border-brand-500/20'
+            ? 'bg-amber-500/5 border-amber-500/30'
+            : 'bg-brand-500/5 border-brand-500/30'
         }`}>
           <div className="flex items-start gap-4">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-lg ${
               comparison.is_tie ? 'bg-amber-500/20 text-amber-300' : 'bg-brand-500/20 text-brand-400'
             }`}>
-              {comparison.is_tie ? <Scale className="w-5 h-5" /> : <Award className="w-5 h-5" />}
+              {comparison.is_tie ? <Scale className="w-6 h-6" /> : <Award className="w-6 h-6" />}
             </div>
-            <div className="flex-1">
-              <div className="flex items-center gap-3">
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center gap-3 flex-wrap">
                 <h3 className="text-base font-bold text-white">
-                  {comparison.is_tie ? 'Decision Dilemma: Statistical Parity / Tie' : 'Best-Idea Recommendation'}
+                  {comparison.is_tie ? 'Decision Dilemma: Statistical Parity / Inconclusive Margin' : 'Recommended Top Candidate'}
                 </h3>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
                   comparison.is_tie
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                     : 'bg-brand-500/20 text-brand-400 border border-brand-500/30'
                 }`}>
-                  {comparison.is_tie ? 'Tie / Close Margin (< 2.0 pts)' : 'Transparent Recommendation'}
+                  {comparison.is_tie ? 'Margin < 2.0 pts or Evidence Unverified' : 'Deterministic Recommendation'}
                 </span>
               </div>
-              <p className="text-xs text-slate-300 mt-2 leading-relaxed">
+              <p className="text-xs text-slate-300 leading-relaxed">
                 {comparison.recommendation_rationale}
               </p>
+
+              {/* Trade-off Contrast Bullets */}
+              {comparison.tradeoff_analysis && (comparison.tradeoff_analysis.top_advantages || comparison.tradeoff_analysis.runner_up_advantages) && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-3 border-t border-slate-800 text-xs">
+                  {comparison.tradeoff_analysis.top_advantages && comparison.tradeoff_analysis.top_advantages.length > 0 && (
+                    <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+                      <span className="font-semibold text-emerald-400 block mb-1">Top Candidate Strengths:</span>
+                      <ul className="list-disc list-inside text-slate-300 text-[11px] space-y-0.5">
+                        {comparison.tradeoff_analysis.top_advantages.map((adv, idx) => (
+                          <li key={idx}>{adv}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {comparison.tradeoff_analysis.runner_up_advantages && comparison.tradeoff_analysis.runner_up_advantages.length > 0 && (
+                    <div className="p-3 bg-slate-950/60 rounded-xl border border-slate-800">
+                      <span className="font-semibold text-blue-400 block mb-1">Runner-up Counter-Advantages:</span>
+                      <ul className="list-disc list-inside text-slate-300 text-[11px] space-y-0.5">
+                        {comparison.tradeoff_analysis.runner_up_advantages.map((adv, idx) => (
+                          <li key={idx}>{adv}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -407,110 +624,254 @@ export default function IdeaComparison() {
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Sliders className="w-4 h-4 text-brand-400" /> Transparent Weight Configuration
+                <Sliders className="w-4 h-4 text-brand-400" /> Configurable Dimension Priorities
               </h3>
               <p className="text-xs text-slate-400">
-                Adjust dimension priorities according to your project's current maturity (e.g., Feasibility for Hackathons vs Novelty for Academia).
+                Adjust criteria weights based on project stage (e.g., Feasibility for rapid Hackathons vs Novelty for Research Papers).
               </p>
             </div>
             <button
               onClick={() => setShowWeightSliders(!showWeightSliders)}
               className="text-xs text-brand-400 hover:text-brand-300 flex items-center gap-1 font-medium"
             >
-              {showWeightSliders ? 'Hide Sliders' : 'Customize Priorities'}
+              {showWeightSliders ? 'Hide Sliders' : 'Customize Weights'}
               {showWeightSliders ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </button>
           </div>
 
           {showWeightSliders && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 pt-4 border-t border-slate-800">
-              {Object.keys(DIMENSION_LABELS).map((dimKey) => (
-                <div key={dimKey} className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-medium text-slate-300 truncate" title={DIMENSION_LABELS[dimKey]}>
-                      {DIMENSION_LABELS[dimKey]}
-                    </label>
-                    <span className="text-[11px] font-bold text-brand-400">{weights[dimKey] || 1.0}x</span>
+              {Object.keys(DIMENSION_CONFIG).map((dimKey) => {
+                const conf = DIMENSION_CONFIG[dimKey];
+                return (
+                  <div key={dimKey} className="bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[11px] font-medium text-slate-300 truncate" title={conf.tip}>
+                        {conf.label}
+                      </label>
+                      <span className="text-[11px] font-bold text-brand-400">{weights[dimKey] || 1.0}x</span>
+                    </div>
+                    <input
+                      type="range"
+                      min="0.2"
+                      max="3.0"
+                      step="0.2"
+                      value={weights[dimKey] || 1.0}
+                      onChange={(e) => handleWeightChange(dimKey, e.target.value)}
+                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-brand-500"
+                    />
+                    <span className="text-[9px] text-slate-500 block truncate">{conf.type === 'frictional' ? '(Inverted cost/complexity)' : '(Higher is better)'}</span>
                   </div>
-                  <input
-                    type="range"
-                    min="0.2"
-                    max="3.0"
-                    step="0.2"
-                    value={weights[dimKey] || 1.0}
-                    onChange={(e) => handleWeightChange(dimKey, e.target.value)}
-                    className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-brand-500"
-                  />
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
       )}
 
-      {/* 10-Dimension Side-by-Side Breakdown Table */}
+      {/* Tab Switcher: 10-Dimension Matrix vs Deep-Dive Qualitative Breakdown */}
       {evaluations.length > 0 && (
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden">
-          <div className="p-5 border-b border-slate-800">
-            <h3 className="text-sm font-bold text-white">10-Dimension Comparative Matrix</h3>
-            <p className="text-xs text-slate-400">Granular dimension scores (1 to 10 scale) for all submitted candidates.</p>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setActiveTab('matrix')}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  activeTab === 'matrix'
+                    ? 'bg-brand-600 text-white shadow-md shadow-brand-600/20'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                10-Dimension Score Matrix
+              </button>
+              <button
+                onClick={() => setActiveTab('deepdive')}
+                className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+                  activeTab === 'deepdive'
+                    ? 'bg-brand-600 text-white shadow-md shadow-brand-600/20'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Side-by-Side Deep Dive (Assumptions & Risks)
+              </button>
+            </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
-                <tr>
-                  <th className="p-4 font-semibold">Evaluation Dimension</th>
-                  <th className="p-4 font-semibold text-center">Weight</th>
-                  {ideas.map((i) => (
-                    <th key={i.id} className="p-4 font-semibold text-center text-slate-200">
-                      {i.title}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/70">
-                {Object.keys(DIMENSION_LABELS).map((dimKey) => (
-                  <tr key={dimKey} className="hover:bg-slate-800/30 transition-colors">
-                    <td className="p-4 font-medium text-slate-200 flex items-center gap-2">
-                      {DIMENSION_LABELS[dimKey]}
-                    </td>
-                    <td className="p-4 text-center text-brand-400 font-mono text-xs">
-                      {weights[dimKey] || 1.0}x
-                    </td>
-                    {ideas.map((i) => {
-                      const ev = getEvaluationForIdea(i.id);
-                      const score = ev?.dimension_scores?.[dimKey] || 0;
+          {/* View 1: 10-Dimension Matrix */}
+          {activeTab === 'matrix' && (
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-950 text-slate-400 uppercase text-[10px] tracking-wider border-b border-slate-800">
+                    <tr>
+                      <th className="p-4 font-semibold">Evaluation Dimension</th>
+                      <th className="p-4 font-semibold text-center">Priority Weight</th>
+                      {ideas.map((i) => (
+                        <th key={i.id} className="p-4 font-semibold text-center text-slate-200">
+                          {i.title}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/70">
+                    {Object.keys(DIMENSION_CONFIG).map((dimKey) => {
+                      const conf = DIMENSION_CONFIG[dimKey];
                       return (
-                        <td key={i.id} className="p-4 text-center">
-                          <span className={`inline-block px-2.5 py-1 rounded-lg text-xs font-bold font-mono ${
-                            score >= 8.0 ? 'bg-emerald-500/15 text-emerald-400' :
-                            score >= 6.0 ? 'bg-blue-500/15 text-blue-400' :
-                            'bg-amber-500/15 text-amber-400'
-                          }`}>
-                            {score.toFixed(1)}/10
-                          </span>
-                        </td>
+                        <tr key={dimKey} className="hover:bg-slate-800/30 transition-colors">
+                          <td className="p-4 font-medium text-slate-200">
+                            <div className="flex items-center gap-2">
+                              <span>{conf.label}</span>
+                              {conf.type === 'frictional' && (
+                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20" title={conf.tip}>
+                                  Inverted
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-400 block mt-0.5">{conf.tip}</span>
+                          </td>
+                          <td className="p-4 text-center text-brand-400 font-mono text-xs">
+                            {weights[dimKey] || 1.0}x
+                          </td>
+                          {ideas.map((i) => {
+                            const ev = getEvaluationForIdea(i.id);
+                            const raw = ev?.dimension_scores?.[dimKey] || 0;
+                            const eff = ev?.effective_scores?.[dimKey] || raw;
+
+                            return (
+                              <td key={i.id} className="p-4 text-center">
+                                <div className="inline-flex flex-col items-center">
+                                  <span className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono ${
+                                    eff >= 8.0 ? 'bg-emerald-500/15 text-emerald-400' :
+                                    eff >= 6.0 ? 'bg-blue-500/15 text-blue-400' :
+                                    'bg-amber-500/15 text-amber-400'
+                                  }`}>
+                                    {eff.toFixed(1)}/10
+                                  </span>
+                                  {conf.type === 'frictional' && (
+                                    <span className="text-[9px] text-slate-500 mt-0.5">
+                                      Raw: {raw.toFixed(1)}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          })}
+                        </tr>
                       );
                     })}
-                  </tr>
-                ))}
-                {/* Composite Row */}
-                <tr className="bg-slate-950/80 font-bold border-t-2 border-slate-700">
-                  <td className="p-4 text-white text-sm">Overall Composite Score</td>
-                  <td className="p-4 text-center text-slate-400 text-xs">Normalized</td>
-                  {ideas.map((i) => {
-                    const ev = getEvaluationForIdea(i.id);
-                    return (
-                      <td key={i.id} className="p-4 text-center text-sm font-extrabold text-brand-400">
-                        {ev?.overall_score || 0}/100
-                      </td>
-                    );
-                  })}
-                </tr>
-              </tbody>
-            </table>
-          </div>
+                    {/* Overall Row */}
+                    <tr className="bg-slate-950 font-bold border-t-2 border-slate-700">
+                      <td className="p-4 text-white text-sm">Overall Normalized Composite Score</td>
+                      <td className="p-4 text-center text-slate-400 text-xs">0–100 Scale</td>
+                      {ideas.map((i) => {
+                        const ev = getEvaluationForIdea(i.id);
+                        return (
+                          <td key={i.id} className="p-4 text-center text-base font-extrabold text-brand-400 font-mono">
+                            {ev?.overall_score || 0}/100
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* View 2: Side-by-Side Deep Dive */}
+          {activeTab === 'deepdive' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {ideas.map((i) => {
+                const ev = getEvaluationForIdea(i.id);
+                if (!ev) return null;
+
+                return (
+                  <div key={i.id} className="bg-slate-900/90 border border-slate-800 rounded-2xl p-5 space-y-5">
+                    <div>
+                      <h4 className="text-sm font-bold text-white line-clamp-1">{i.title}</h4>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Composite Score: <strong className="text-brand-400 font-mono">{ev.overall_score}/100</strong></p>
+                    </div>
+
+                    {/* Strengths */}
+                    <div className="space-y-1.5">
+                      <h5 className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Strengths
+                      </h5>
+                      <ul className="text-[11px] text-slate-300 space-y-1 list-disc list-inside">
+                        {ev.strengths?.map((s, idx) => (
+                          <li key={idx} className="leading-relaxed">{s}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* Weaknesses */}
+                    <div className="space-y-1.5">
+                      <h5 className="text-xs font-semibold text-amber-400 flex items-center gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5" /> Weaknesses
+                      </h5>
+                      <ul className="text-[11px] text-slate-300 space-y-1 list-disc list-inside">
+                        {ev.weaknesses?.map((w, idx) => (
+                          <li key={idx} className="leading-relaxed">{w}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* Key Risks */}
+                    <div className="space-y-1.5">
+                      <h5 className="text-xs font-semibold text-rose-400 flex items-center gap-1.5">
+                        <ShieldAlert className="w-3.5 h-3.5" /> Key Risks & Failure Modes
+                      </h5>
+                      <ul className="text-[11px] text-slate-300 space-y-1 list-disc list-inside">
+                        {ev.risks?.map((r, idx) => (
+                          <li key={idx} className="leading-relaxed">{r}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* Assumptions (Unverified Hypotheses) */}
+                    <div className="space-y-1.5">
+                      <h5 className="text-xs font-semibold text-purple-400 flex items-center gap-1.5">
+                        <Lightbulb className="w-3.5 h-3.5" /> Key Assumptions (Unverified)
+                      </h5>
+                      <ul className="text-[11px] text-slate-300 space-y-1 list-disc list-inside">
+                        {(ev.assumptions && ev.assumptions.length > 0) ? (
+                          ev.assumptions.map((a, idx) => (
+                            <li key={idx} className="leading-relaxed">{a}</li>
+                          ))
+                        ) : (
+                          <li className="text-slate-500 italic">No explicit unverified assumptions recorded.</li>
+                        )}
+                      </ul>
+                    </div>
+
+                    {/* Missing Information */}
+                    <div className="space-y-1.5">
+                      <h5 className="text-xs font-semibold text-sky-400 flex items-center gap-1.5">
+                        <HelpCircle className="w-3.5 h-3.5" /> Missing Evidence & Gaps
+                      </h5>
+                      <ul className="text-[11px] text-slate-300 space-y-1 list-disc list-inside">
+                        {ev.missing_information?.map((m, idx) => (
+                          <li key={idx} className="leading-relaxed">{m}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    {/* Recommended Experiments */}
+                    <div className="space-y-1.5 pt-2 border-t border-slate-800">
+                      <h5 className="text-xs font-semibold text-emerald-300 flex items-center gap-1.5">
+                        <FlaskConical className="w-3.5 h-3.5" /> Recommended Validation Experiments
+                      </h5>
+                      <ul className="text-[11px] text-slate-300 space-y-1 list-decimal list-inside">
+                        {ev.recommended_experiments?.map((exp, idx) => (
+                          <li key={idx} className="leading-relaxed">{exp}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -518,9 +879,9 @@ export default function IdeaComparison() {
       {showIdeaModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm overflow-y-auto">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-2xl p-6 shadow-2xl my-8">
-            <h2 className="text-lg font-bold text-white mb-1">Submit Candidate Idea ({ideas.length + 1}/3)</h2>
+            <h2 className="text-lg font-bold text-white mb-1">Add Candidate Idea</h2>
             <p className="text-xs text-slate-400 mb-4">
-              Enter concrete details for this candidate idea. The 10-dimension diligence engine will analyze its feasibility.
+              Enter the core parameters for this candidate idea ({ideas.length}/3 ideas created).
             </p>
 
             {formError && (
@@ -539,18 +900,18 @@ export default function IdeaComparison() {
                     required
                     value={ideaForm.title}
                     onChange={(e) => setIdeaForm({ ...ideaForm, title: e.target.value })}
-                    placeholder="e.g., Autonomous Wildfire Detection Mesh"
+                    placeholder="e.g., LoRa Smoke Sensor Mesh"
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Industry / Domain *</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Target Audience *</label>
                   <input
                     type="text"
                     required
-                    value={ideaForm.industry}
-                    onChange={(e) => setIdeaForm({ ...ideaForm, industry: e.target.value })}
-                    placeholder="e.g., ClimateTech, Healthcare, DevOps"
+                    value={ideaForm.target_audience}
+                    onChange={(e) => setIdeaForm({ ...ideaForm, target_audience: e.target.value })}
+                    placeholder="e.g., Forestry departments, emergency personnel"
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500"
                   />
                 </div>
@@ -582,70 +943,23 @@ export default function IdeaComparison() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Target Audience *</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Industry / Domain</label>
                   <input
                     type="text"
-                    required
-                    value={ideaForm.target_audience}
-                    onChange={(e) => setIdeaForm({ ...ideaForm, target_audience: e.target.value })}
-                    placeholder="e.g., Forestry departments, emergency personnel"
+                    value={ideaForm.industry}
+                    onChange={(e) => setIdeaForm({ ...ideaForm, industry: e.target.value })}
+                    placeholder="e.g., ClimateTech, Healthcare (optional)"
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-slate-300 mb-1">Intended Use Case *</label>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Intended Use Case</label>
                   <input
                     type="text"
-                    required
                     value={ideaForm.intended_use_case}
                     onChange={(e) => setIdeaForm({ ...ideaForm, intended_use_case: e.target.value })}
-                    placeholder="e.g., Continuous perimeter infrared sensor sweep"
+                    placeholder="e.g., Continuous perimeter monitoring (optional)"
                     className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1">Expected Benefits & Outcomes *</label>
-                <textarea
-                  rows={2}
-                  required
-                  value={ideaForm.expected_benefits}
-                  onChange={(e) => setIdeaForm({ ...ideaForm, expected_benefits: e.target.value })}
-                  placeholder="Quantifiable or qualitative advantages (e.g., 80% earlier smoke detection)"
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Technical Preferences</label>
-                  <input
-                    type="text"
-                    value={ideaForm.technical_preferences}
-                    onChange={(e) => setIdeaForm({ ...ideaForm, technical_preferences: e.target.value })}
-                    placeholder="e.g., LoRaWAN, Python"
-                    className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Budget / Scope</label>
-                  <input
-                    type="text"
-                    value={ideaForm.estimated_budget}
-                    onChange={(e) => setIdeaForm({ ...ideaForm, estimated_budget: e.target.value })}
-                    placeholder="e.g., < $10k MVP"
-                    className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-slate-400 mb-1">Key Constraints</label>
-                  <input
-                    type="text"
-                    value={ideaForm.constraints}
-                    onChange={(e) => setIdeaForm({ ...ideaForm, constraints: e.target.value })}
-                    placeholder="e.g., Off-grid battery life"
-                    className="w-full px-3 py-1.5 bg-slate-950 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500"
                   />
                 </div>
               </div>

@@ -1,8 +1,8 @@
 import api from './api';
 
 export const evaluationService = {
-  async evaluateProject(projectId) {
-    const res = await api.post(`/projects/${projectId}/evaluate`);
+  async evaluateProject(projectId, payload = {}) {
+    const res = await api.post(`/projects/${projectId}/evaluate`, payload);
     return res.data;
   },
 

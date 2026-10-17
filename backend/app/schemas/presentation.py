@@ -1,6 +1,6 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class SlideBase(BaseModel):
@@ -29,8 +29,7 @@ class SlideOut(SlideBase):
     id: int
     presentation_id: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PresentationBase(BaseModel):
@@ -60,5 +59,5 @@ class PresentationOut(PresentationBase):
     updated_at: datetime
     slides: List[SlideOut] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+

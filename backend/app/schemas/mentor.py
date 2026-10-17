@@ -1,6 +1,6 @@
 from typing import List, Optional, Any, Dict
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class MentorMessageOut(BaseModel):
@@ -11,8 +11,7 @@ class MentorMessageOut(BaseModel):
     cited_sources: List[Dict[str, Any]]
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class MentorConversationCreate(BaseModel):
@@ -33,8 +32,8 @@ class MentorConversationOut(BaseModel):
     updated_at: datetime
     messages: List[MentorMessageOut] = []
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
 
 
 class SendMessageRequest(BaseModel):

@@ -43,6 +43,33 @@ export default function MentorPage() {
   const [loading, setLoading] = useState(true);
   const messagesEndRef = useRef(null);
 
+  const selectConversation = async (convId) => {
+    try {
+      const conv = await mentorService.getConversation(convId);
+      setActiveConv(conv);
+      setMessages(conv.messages || []);
+      setSelectedMode(conv.mode || 'idea');
+    } catch (err) {
+      console.error("Failed to load conversation:", err);
+    }
+  };
+
+  const handleNewChat = async (mode = selectedMode) => {
+    try {
+      const newConv = await mentorService.createConversation({
+        project_id: projectId || activeProject?.id,
+        mode: mode,
+        title: `${MENTOR_MODES.find(m => m.id === mode)?.name || 'Mentor'} Session`
+      });
+      setConversations(prev => [newConv, ...prev]);
+      setActiveConv(newConv);
+      setMessages(newConv.messages || []);
+      setSelectedMode(mode);
+    } catch (err) {
+      alert("Failed to initialize mentor conversation.");
+    }
+  };
+
   const fetchConversations = async () => {
     try {
       const list = await mentorService.listConversations();
@@ -60,17 +87,6 @@ export default function MentorPage() {
     }
   };
 
-  const selectConversation = async (convId) => {
-    try {
-      const conv = await mentorService.getConversation(convId);
-      setActiveConv(conv);
-      setMessages(conv.messages || []);
-      setSelectedMode(conv.mode || 'idea');
-    } catch (err) {
-      console.error("Failed to load conversation:", err);
-    }
-  };
-
   useEffect(() => {
     fetchConversations();
   }, [projectId]);
@@ -78,22 +94,6 @@ export default function MentorPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
-
-  const handleNewChat = async (mode = selectedMode) => {
-    try {
-      const newConv = await mentorService.createConversation({
-        project_id: projectId || activeProject?.id,
-        mode: mode,
-        title: `${MENTOR_MODES.find(m => m.id === mode)?.name || 'Mentor'} Session`
-      });
-      setConversations([newConv, ...conversations]);
-      setActiveConv(newConv);
-      setMessages(newConv.messages || []);
-      setSelectedMode(mode);
-    } catch (err) {
-      alert("Failed to initialize mentor conversation.");
-    }
-  };
 
   const handleSendMessage = async (e) => {
     e.preventDefault();

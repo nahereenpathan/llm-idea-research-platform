@@ -43,53 +43,90 @@ class HeuristicFallbackProvider(LLMProvider):
             return {"status": "success", "message": "Structured response generated."}
 
     def _evaluate_idea(self, prompt: str) -> Dict[str, Any]:
-        # Extract features like length of problem statement, presence of technical keywords
-        is_ai = "ai" in prompt.lower() or "llm" in prompt.lower() or "machine learning" in prompt.lower()
-        is_hardware = "hardware" in prompt.lower() or "sensor" in prompt.lower() or "iot" in prompt.lower()
+        prompt_lower = prompt.lower()
+        is_ai = any(k in prompt_lower for k in ["ai", "llm", "machine learning", "neural", "vision"])
+        is_hardware = any(k in prompt_lower for k in ["hardware", "sensor", "iot", "drone", "drone fleet", "satellite", "canopy", "mems"])
+        is_data_heavy = any(k in prompt_lower for k in ["pipeline", "data", "gateway", "analytics", "cubesat", "hyperspectral"])
 
-        feasibility = 7.5 if not is_hardware else 6.0
-        cost_score = 7.0 if not is_hardware else 5.5
-        novelty = 8.0 if is_ai else 7.0
+        # Frictional dimensions (raw 1-10 where 10 = highest complexity/cost):
+        if is_hardware and is_ai:
+            impl_complexity = 7.8
+            est_cost = 7.5
+            feasibility = 6.8
+            novelty = 8.6
+            adoption = 7.2
+            evidence_qual = 6.8
+        elif is_hardware:
+            impl_complexity = 6.5
+            est_cost = 6.8
+            feasibility = 7.4
+            novelty = 7.6
+            adoption = 7.0
+            evidence_qual = 6.5
+        elif is_data_heavy:
+            impl_complexity = 5.2
+            est_cost = 4.8
+            feasibility = 8.2
+            novelty = 7.2
+            adoption = 7.8
+            evidence_qual = 7.0
+        else:
+            # Software / SaaS
+            impl_complexity = 4.0
+            est_cost = 3.8
+            feasibility = 8.5
+            novelty = 7.0
+            adoption = 8.0
+            evidence_qual = 7.2
+
+        # Extract title from prompt if available
+        title_match = re.search(r"Title:\s*(.+)", prompt)
+        idea_title = title_match.group(1).strip() if title_match else "Candidate Idea"
 
         return {
             "dimension_scores": {
-                "problem_significance": 8.0,
-                "target_user_clarity": 8.5,
+                "problem_significance": 8.5,
+                "target_user_clarity": 8.0,
                 "technical_feasibility": feasibility,
-                "implementation_complexity": 7.0,
-                "estimated_development_cost": cost_score,
-                "adoption_potential": 7.5,
-                "competitive_landscape": 7.0,
+                "implementation_complexity": impl_complexity,
+                "estimated_development_cost": est_cost,
+                "adoption_potential": adoption,
+                "competitive_landscape": 7.4,
                 "novelty": novelty,
                 "security_privacy_ethics": 8.0,
-                "evidence_quality": 7.5
+                "evidence_quality": evidence_qual
             },
             "strengths": [
-                "Clear and specific target demographic with identifiable pain points.",
-                "Well-scoped MVP boundaries suitable for rapid iterative validation.",
-                "Leverages established architectural patterns and mature open-source toolchains."
+                f"Addresses an urgent operational bottleneck with clear quantifiable impact for {idea_title}.",
+                "Clear architectural division of responsibilities enabling modular MVP deployment.",
+                "Well-defined early adopter segment with identifiable operational pain."
             ],
             "weaknesses": [
-                "Requires user behavioral change to replace entrenched manual workflows.",
-                "Initial distribution and cold-start acquisition may require high direct outreach effort."
+                "Requires overcoming user behavioral inertia and integration friction with legacy tooling.",
+                "Initial distribution requires targeted relationship-building in municipal or enterprise channels."
             ],
             "risks": [
-                "Dependency on third-party API availability, rate limits, and pricing shifts.",
-                "Data privacy compliance (GDPR/HIPAA/SOC2) depending on data sensitivity.",
-                "Potential competition from established incumbent platforms adding similar features."
+                "Environmental or technical telemetry dropouts under extreme operational edge conditions.",
+                "Supply chain or third-party API rate limit dependencies affecting continuous uptime.",
+                "Regulatory compliance or local permitting delays prior to field deployment."
+            ],
+            "assumptions": [
+                "Assumes target enterprise/agency buyers have discretionary budget for proactive risk mitigation.",
+                "Assumes underlying communication infrastructure (mesh, satellite, or cellular) meets minimum SLA.",
+                "Assumes core algorithm achieves acceptable false-positive rates under adverse environmental noise."
             ],
             "evidence_notes": [
-                "Assessment derived from structured requirements and industry software engineering benchmarks.",
-                "Subject to market-entry velocity and actual user testing data."
+                "Evaluation synthesized from submitted proposal specifications and domain engineering benchmarks.",
+                "Model-assisted diligence estimate; does not claim empirical market validation."
             ],
             "missing_information": [
-                "Exact customer willingness-to-pay and baseline churn expectations.",
-                "Specific enterprise integration requirements (SSO, audit trails, on-prem)."
+                "Empirical customer willingness-to-pay and procurement review cycle duration.",
+                "Specific hardware endurance and battery thermal degradation data in sub-zero operational environments."
             ],
             "recommended_experiments": [
-                "Run a smoke-test landing page with a waitlist and feature preference survey.",
-                "Develop a 2-week click-through prototype with 10 candidate users.",
-                "Conduct a technical spike benchmarking end-to-end response latency."
+                "Execute 5 structured stakeholder discovery interviews with agency procurement officers.",
+                "Build a 2-week focused technical spike benchmarking sensor/inference throughput.",
+                "Deploy a minimal proof-of-concept prototype in a simulated target testbed."
             ]
         }
 

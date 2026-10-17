@@ -1,6 +1,6 @@
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class IdeaBase(BaseModel):
@@ -8,9 +8,9 @@ class IdeaBase(BaseModel):
     problem_statement: str = Field(..., min_length=10)
     proposed_solution: str = Field(..., min_length=10)
     target_audience: str = Field(..., min_length=2)
-    industry: str = Field(..., min_length=2)
-    intended_use_case: str = Field(..., min_length=5)
-    expected_benefits: str = Field(..., min_length=5)
+    industry: Optional[str] = "General"
+    intended_use_case: Optional[str] = "Core Innovation Workflow"
+    expected_benefits: Optional[str] = "Productivity and efficiency gains"
     constraints: Optional[str] = None
     estimated_budget: Optional[str] = None
     technical_preferences: Optional[str] = None
@@ -41,5 +41,5 @@ class IdeaOut(IdeaBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+

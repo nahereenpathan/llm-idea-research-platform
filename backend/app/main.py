@@ -50,6 +50,7 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/health", tags=["Health & Status"])
+@app.get(f"{settings.API_V1_STR}/health", tags=["Health & Status"])
 def health_check():
     """System health check verifying database and service readiness."""
     db_ok = True
