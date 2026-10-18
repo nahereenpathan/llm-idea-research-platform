@@ -282,13 +282,41 @@ class ScoringEngine:
                 "is_tie": 1
             }
 
-        # Case 2: Statistical Parity / Tie (Score difference < TIE_THRESHOLD)
+        # Case 2A: Truly Identical Dimensional Assessments
+        if score_diff == 0.0 and top["dimension_scores"] == runner_up["dimension_scores"]:
+            rationale = (
+                f"Identical Composite Scores ({top['composite_score']}/100): Both '{top['title']}' "
+                f"and '{runner_up['title']}' scored identically across all 10 evaluated dimensions. "
+                "Because their dimensional profiles are identical, differentiation requires empirical testing or "
+                "differentiating their operational constraints."
+            )
+            return {
+                "recommended_idea_id": top["idea_id"],
+                "recommendation_rationale": rationale,
+                "tradeoff_analysis": {
+                    "rankings": ranked_list,
+                    "score_difference": 0.0,
+                    "is_tie": True,
+                    "is_identical": True,
+                    "top_advantages": [],
+                    "runner_up_advantages": [],
+                    "disclaimer": "Ratings are model-assisted diligence estimates, not objective probability of success."
+                },
+                "is_tie": 1
+            }
+
+        # Case 2B: Statistical Parity / Tie (Score difference < TIE_THRESHOLD)
         if score_diff < cls.TIE_THRESHOLD:
             top_str = ", ".join(top_advantages[:2]) if top_advantages else "balanced overall execution"
             run_str = ", ".join(runner_advantages[:2]) if runner_advantages else "competitive feasibility"
+            tied_names = [
+                item["title"] for item in ranked_list
+                if abs(top["composite_score"] - item["composite_score"]) < cls.TIE_THRESHOLD
+            ]
+            tie_note = f" (Tied cluster includes: {', '.join(tied_names)})" if len(tied_names) > 2 else ""
             rationale = (
                 f"Statistical Parity / Close Decision between '{top['title']}' ({top['composite_score']}/100) "
-                f"and '{runner_up['title']}' ({runner_up['composite_score']}/100) (Margin: {score_diff} pts). "
+                f"and '{runner_up['title']}' ({runner_up['composite_score']}/100) (Margin: {score_diff} pts){tie_note}. "
                 f"'{top['title']}' holds advantages in: {top_str}. "
                 f"Conversely, '{runner_up['title']}' leads in: {run_str}. "
                 "Recommendation: Decision should be guided by your team's immediate risk posture (e.g. speed vs differentiation)."
@@ -300,6 +328,7 @@ class ScoringEngine:
                     "rankings": ranked_list,
                     "score_difference": score_diff,
                     "is_tie": True,
+                    "tied_candidates": tied_names,
                     "top_advantages": top_advantages[:3],
                     "runner_up_advantages": runner_advantages[:3],
                     "disclaimer": "Ratings are model-assisted diligence estimates, not objective probability of success."

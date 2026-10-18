@@ -41,6 +41,7 @@ test_idealens.db
 
 # Storage & exports
 exports_storage/
+backend/tests/test_downloaded_artifacts/
 *.pdf
 *.docx
 *.pptx
@@ -64,3 +65,15 @@ yarn-error.log*
 *~
 .DS_Store
 Thumbs.db
+.env
+*.env
+!.env.example
+
+*.db
+*.sqlite
+*.sqlite3
+
+__pycache__/
+node_modules/
+.venv/
+venv/

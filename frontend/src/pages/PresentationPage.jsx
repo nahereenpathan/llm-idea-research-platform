@@ -48,6 +48,7 @@ export default function PresentationPage() {
   const [generating, setGenerating] = useState(false);
   const [savingSlide, setSavingSlide] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
+  const [exportingDeck, setExportingDeck] = useState(false);
 
   // Active slide editor fields
   const [slideTitle, setSlideTitle] = useState('');
@@ -213,10 +214,18 @@ export default function PresentationPage() {
     }
   };
 
-  const downloadPptx = () => {
+  const downloadPptx = async () => {
     if (!activePres) return;
-    const url = presentationService.getExportUrl(activePres.id, 'pptx');
-    window.open(url, '_blank');
+    setExportingDeck(true);
+    try {
+      await presentationService.downloadPptxExport(activePres.id, activePres.title);
+    } catch (err) {
+      console.error("Authenticated PPTX export failed, falling back to URL download:", err);
+      const url = presentationService.getExportUrl(activePres.id, 'pptx');
+      window.open(url, '_blank');
+    } finally {
+      setExportingDeck(false);
+    }
   };
 
   if (loading) {
@@ -245,7 +254,7 @@ export default function PresentationPage() {
           <div className="flex items-center gap-2 self-start sm:self-auto">
             <button
               onClick={handleRegenerateCurrent}
-              disabled={generating}
+              disabled={generating || exportingDeck}
               title="Regenerate all 10 slides from latest database records"
               className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 shadow-sm transition-all disabled:opacity-50"
             >
@@ -255,9 +264,15 @@ export default function PresentationPage() {
 
             <button
               onClick={downloadPptx}
-              className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md transition-all"
+              disabled={exportingDeck}
+              className="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 disabled:opacity-50 text-white text-xs font-semibold flex items-center gap-1.5 shadow-md transition-all"
             >
-              <FileDown className="w-4 h-4" /> Export Editable PPTX
+              {exportingDeck ? (
+                <RefreshCw className="w-4 h-4 animate-spin" />
+              ) : (
+                <FileDown className="w-4 h-4" />
+              )}
+              {exportingDeck ? 'Exporting PPTX...' : 'Export Editable PPTX'}
             </button>
           </div>
         )}

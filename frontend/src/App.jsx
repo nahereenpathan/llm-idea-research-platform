@@ -29,11 +29,38 @@ function ProtectedRoute({ children }) {
   return isAuthenticated ? children : <Navigate to="/login" replace />;
 }
 
+function PublicOnlyRoute({ children }) {
+  const { isAuthenticated, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center text-slate-400 text-sm">
+        <span className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin mr-3" />
+        Authenticating session...
+      </div>
+    );
+  }
+  return isAuthenticated ? <Navigate to="/" replace /> : children;
+}
+
 export default function App() {
   return (
     <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
+      <Route
+        path="/login"
+        element={
+          <PublicOnlyRoute>
+            <Login />
+          </PublicOnlyRoute>
+        }
+      />
+      <Route
+        path="/register"
+        element={
+          <PublicOnlyRoute>
+            <Register />
+          </PublicOnlyRoute>
+        }
+      />
 
       <Route
         path="/"

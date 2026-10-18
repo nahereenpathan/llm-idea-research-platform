@@ -64,7 +64,7 @@ def build_comprehensive_report_markdown(
         score = evaluation.overall_score or 0.0
         grade = "A" if score >= 80 else ("B" if score >= 65 else ("C" if score >= 50 else "D"))
         recommendation = "Recommended for Prototyping & MVP" if score >= 65 else "Requires Hypothesis Refinement & Evidence Gathering"
-        eval_section = f"""### Viability Score: {score:.1f} / 100 (Grade: {grade})
+        eval_section = f"""### [AI-DERIVED ANALYSIS] Viability Score: {score:.1f} / 100 (Grade: {grade})
 **Strategic Verdict**: `{recommendation}`
 
 | Dimension | Score (0-10) | Evaluation Rationale & Metric Standard |
@@ -92,7 +92,7 @@ def build_comprehensive_report_markdown(
     # 3. Academic Literature Review
     papers_section = ""
     if papers:
-        papers_section = f"This review incorporates **{len(papers)} saved peer-reviewed papers** retrieved from OpenAlex and Crossref repositories:\n\n"
+        papers_section = f"### [VERIFIED CITATIONS] Peer-Reviewed Literature Review\nThis review incorporates **{len(papers)} saved peer-reviewed papers** retrieved from OpenAlex and Crossref repositories:\n\n"
         for p in papers:
             authors_str = ", ".join(p.authors) if isinstance(p.authors, list) else str(p.authors or "Scholarly Authors")
             url_str = f" [DOI Link]({p.source_url})" if p.source_url else ""
@@ -104,12 +104,12 @@ def build_comprehensive_report_markdown(
                 abstract_preview = p.abstract[:200] + "..." if len(p.abstract) > 200 else p.abstract
                 papers_section += f"  - *Abstract*: \"{abstract_preview}\"\n"
     else:
-        papers_section = "> [!NOTE]\n> **Notice on Evidence Density**: No academic papers have been saved to this project library yet. Findings are derived from conceptual synthesis. Save relevant papers in the Research Workspace to ground literature citations in verified empirical evidence.\n"
+        papers_section = "### [EVIDENCE LIMITATION NOTICE] Scholarly Literature\n> [!NOTE]\n> **Notice on Evidence Density**: No academic papers have been saved to this project library yet. Findings are derived from conceptual synthesis. Save relevant papers in the Research Workspace to ground literature citations in verified empirical evidence.\n"
 
     # 4. Patent Landscape
     patents_section = ""
     if patents:
-        patents_section = f"Analysis of **{len(patents)} relevant patent documents** retrieved from official intellectual property offices:\n\n"
+        patents_section = f"### [VERIFIED CITATIONS] Patent Landscape & Prior Art\nAnalysis of **{len(patents)} relevant patent documents** retrieved from official intellectual property offices:\n\n"
         for pat in patents:
             inv_str = ", ".join(pat.inventors) if isinstance(pat.inventors, list) else str(pat.inventors or "Inventors")
             url_str = f" [Patent Record]({pat.source_url})" if pat.source_url else ""
@@ -118,7 +118,7 @@ def build_comprehensive_report_markdown(
             if pat.abstract:
                 patents_section += f"  - *Summary*: {pat.abstract[:180]}...\n"
     else:
-        patents_section = "*No patent records currently saved in project library. Intellectual property search can be initiated in the Patent Search Workspace.*"
+        patents_section = "### [EVIDENCE LIMITATION NOTICE] Patent Landscape\n*No patent records currently saved in project library. Intellectual property search can be initiated in the Patent Search Workspace.*"
 
     # 5. Research Gaps & Validation Opportunities
     gaps_section = ""
@@ -193,10 +193,10 @@ def build_comprehensive_report_markdown(
 
 ## 1. Executive Summary & Problem Space
 
-### [USER-PROVIDED PROBLEM SPECIFICATION]
+### [USER-PROVIDED INPUTS] Problem Statement
 {problem}
 
-### [PROPOSED INNOVATION & CORE VALUE PROPOSITION]
+### [AI-DERIVED ANALYSIS] Proposed Innovation & Core Value Proposition
 {solution}
 
 **Target Audience & Beneficiaries**:  

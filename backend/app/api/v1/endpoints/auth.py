@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from datetime import datetime, timezone
 from app.core.database import get_db
 from app.core.security import get_password_hash, verify_password, create_access_token
@@ -14,31 +16,54 @@ router = APIRouter()
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
 def register(user_in: UserRegister, db: Session = Depends(get_db)):
     """Registers a new user and returns JWT access token."""
-    existing = db.query(User).filter(User.email == user_in.email).first()
+    normalized_email = user_in.email.strip().lower()
+
+    existing = db.query(User).filter(func.lower(User.email) == normalized_email).first()
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A user with this email address already exists"
         )
-    
+
     if len(user_in.password) < 6:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail="Password must be at least 6 characters in length"
         )
 
-    user = User(
-        email=user_in.email,
-        hashed_password=get_password_hash(user_in.password),
-        full_name=user_in.full_name or user_in.email.split("@")[0],
-        role="user",
-        is_active=True,
-        created_at=datetime.now(timezone.utc),
-        updated_at=datetime.now(timezone.utc)
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
+    if len(user_in.password.encode("utf-8")) > 72:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password cannot exceed 72 bytes"
+        )
+
+    clean_name = (user_in.full_name or "").strip() or normalized_email.split("@")[0]
+
+    try:
+        user = User(
+            email=normalized_email,
+            hashed_password=get_password_hash(user_in.password),
+            full_name=clean_name,
+            role="user",
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A user with this email address already exists"
+        )
+    except Exception:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An error occurred while creating your account. Please try again."
+        )
 
     token = create_access_token(subject=user.id)
     return TokenResponse(
@@ -51,7 +76,8 @@ def register(user_in: UserRegister, db: Session = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 def login(login_in: UserLogin, db: Session = Depends(get_db)):
     """Authenticates user with email & password and returns JWT."""
-    user = db.query(User).filter(User.email == login_in.email).first()
+    normalized_email = login_in.email.strip().lower()
+    user = db.query(User).filter(func.lower(User.email) == normalized_email).first()
     if not user or not verify_password(login_in.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: idealens_prod_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-idealens_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ChangeThisSuperSecureDbPassword2026!}
+      POSTGRES_DB: ${POSTGRES_DB:-idealens}
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-idealens_admin} -d ${POSTGRES_DB:-idealens}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - idealens_internal
+
+  redis:
+    image: redis:7-alpine
+    container_name: idealens_prod_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass "${REDIS_PASSWORD:-ChangeThisRedisPassword2026!}"
+    volumes:
+      - redis_prod_data:/data
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-ChangeThisRedisPassword2026!}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - idealens_internal
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: idealens_prod_backend
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=production
+      - PROJECT_NAME=IdeaLens
+      - VERSION=1.0.0
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-idealens_admin}:${POSTGRES_PASSWORD:-ChangeThisSuperSecureDbPassword2026!}@postgres:5432/${POSTGRES_DB:-idealens}
+      - SECRET_KEY=${SECRET_KEY}
+      - ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-ChangeThisRedisPassword2026!}@redis:6379/0
+      - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD:-ChangeThisRedisPassword2026!}@redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD:-ChangeThisRedisPassword2026!}@redis:6379/0
+      - LLM_PROVIDER=${LLM_PROVIDER:-auto}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENALEX_MAILTO=${OPENALEX_MAILTO:-research@idealens.ai}
+      - CROSSREF_MAILTO=${CROSSREF_MAILTO:-research@idealens.ai}
+      - BACKEND_CORS_ORIGINS=${BACKEND_CORS_ORIGINS:-["https://app.idealens.ai"]}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - idealens_internal
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: idealens_prod_frontend
+    restart: unless-stopped
+    ports:
+      - "80:8080"
+    depends_on:
+      - backend
+    networks:
+      - idealens_internal
+
+networks:
+  idealens_internal:
+    driver: bridge
+
+volumes:
+  postgres_prod_data:
+  redis_prod_data:

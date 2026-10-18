@@ -50,6 +50,8 @@ export default function ReportsPage() {
   const [generating, setGenerating] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
   const [showNewModal, setShowNewModal] = useState(false);
+  const [downloadingFormat, setDownloadingFormat] = useState(null);
+  const [downloadingCsv, setDownloadingCsv] = useState(false);
 
   const fetchReports = async () => {
     try {
@@ -155,15 +157,31 @@ export default function ReportsPage() {
     }
   };
 
-  const downloadExport = (format) => {
+  const downloadExport = async (format) => {
     if (!activeReport) return;
-    const url = reportService.getExportUrl(activeReport.id, format);
-    window.open(url, '_blank');
+    setDownloadingFormat(format);
+    try {
+      await reportService.downloadReportExport(activeReport.id, format, activeReport.title);
+    } catch (err) {
+      console.error("Authenticated blob export failed, falling back to URL download:", err);
+      const url = reportService.getExportUrl(activeReport.id, format);
+      window.open(url, '_blank');
+    } finally {
+      setDownloadingFormat(null);
+    }
   };
 
-  const downloadCsvScores = () => {
-    const url = reportService.getCsvExportUrl(projectId);
-    window.open(url, '_blank');
+  const downloadCsvScores = async () => {
+    setDownloadingCsv(true);
+    try {
+      await reportService.downloadCsvExport(projectId, activeReport?.title || 'scores');
+    } catch (err) {
+      console.error("Authenticated CSV export failed, falling back to URL download:", err);
+      const url = reportService.getCsvExportUrl(projectId);
+      window.open(url, '_blank');
+    } finally {
+      setDownloadingCsv(false);
+    }
   };
 
   if (loading) {
@@ -193,10 +211,16 @@ export default function ReportsPage() {
         <div className="flex items-center gap-2 self-start sm:self-auto">
           <button
             onClick={downloadCsvScores}
+            disabled={downloadingCsv}
             title="Download structured CSV of all idea scores"
-            className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-slate-200 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 shadow-sm transition-all"
+            className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-slate-200 text-xs font-semibold flex items-center gap-1.5 border border-slate-700 shadow-sm transition-all"
           >
-            <Table className="w-4 h-4 text-emerald-400" /> Export Scores (CSV)
+            {downloadingCsv ? (
+              <RefreshCw className="w-4 h-4 text-emerald-400 animate-spin" />
+            ) : (
+              <Table className="w-4 h-4 text-emerald-400" />
+            )}
+            {downloadingCsv ? "Exporting CSV..." : "Export Scores (CSV)"}
           </button>
 
           <button
@@ -349,31 +373,55 @@ export default function ReportsPage() {
                   <div className="flex items-center gap-1 pl-2 border-l border-slate-800">
                     <button
                       onClick={() => downloadExport('pdf')}
+                      disabled={downloadingFormat !== null}
                       title="Download PDF format"
-                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-brand-600 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1 border border-slate-700 transition-colors"
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-brand-600 disabled:opacity-50 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1 border border-slate-700 transition-colors"
                     >
-                      <FileDown className="w-3.5 h-3.5 text-red-400" /> PDF
+                      {downloadingFormat === 'pdf' ? (
+                        <RefreshCw className="w-3.5 h-3.5 text-red-400 animate-spin" />
+                      ) : (
+                        <FileDown className="w-3.5 h-3.5 text-red-400" />
+                      )}
+                      PDF
                     </button>
                     <button
                       onClick={() => downloadExport('docx')}
+                      disabled={downloadingFormat !== null}
                       title="Download Microsoft Word format"
-                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-brand-600 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1 border border-slate-700 transition-colors"
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-brand-600 disabled:opacity-50 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1 border border-slate-700 transition-colors"
                     >
-                      <FileDown className="w-3.5 h-3.5 text-blue-400" /> DOCX
+                      {downloadingFormat === 'docx' ? (
+                        <RefreshCw className="w-3.5 h-3.5 text-blue-400 animate-spin" />
+                      ) : (
+                        <FileDown className="w-3.5 h-3.5 text-blue-400" />
+                      )}
+                      DOCX
                     </button>
                     <button
                       onClick={() => downloadExport('md')}
+                      disabled={downloadingFormat !== null}
                       title="Download Markdown source"
-                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-brand-600 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1 border border-slate-700 transition-colors"
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-brand-600 disabled:opacity-50 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1 border border-slate-700 transition-colors"
                     >
-                      <FileCode className="w-3.5 h-3.5 text-purple-400" /> MD
+                      {downloadingFormat === 'md' ? (
+                        <RefreshCw className="w-3.5 h-3.5 text-purple-400 animate-spin" />
+                      ) : (
+                        <FileCode className="w-3.5 h-3.5 text-purple-400" />
+                      )}
+                      MD
                     </button>
                     <button
                       onClick={() => downloadExport('latex')}
+                      disabled={downloadingFormat !== null}
                       title="Download LaTeX format"
-                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-brand-600 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1 border border-slate-700 transition-colors"
+                      className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-brand-600 disabled:opacity-50 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1 border border-slate-700 transition-colors"
                     >
-                      <FileDown className="w-3.5 h-3.5 text-emerald-400" /> TeX
+                      {downloadingFormat === 'latex' ? (
+                        <RefreshCw className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
+                      ) : (
+                        <FileDown className="w-3.5 h-3.5 text-emerald-400" />
+                      )}
+                      TeX
                     </button>
                   </div>
                 </div>

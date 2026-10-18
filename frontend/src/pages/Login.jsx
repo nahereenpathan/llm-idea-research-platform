@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { formatAuthError } from '../utils/errorUtils';
 import { Sparkles, ArrowRight, AlertCircle, Lock, Mail } from 'lucide-react';
 
 export default function Login() {
@@ -8,18 +9,31 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/', { replace: true });
+    }
+  }, [isAuthenticated, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
+      setError('Email address is required.');
+      return;
+    }
+
     setLoading(true);
     try {
-      await login(email, password);
-      navigate('/');
+      await login(trimmedEmail, password);
+      navigate('/', { replace: true });
     } catch (err) {
-      setError(err.response?.data?.detail || 'Invalid email or password. Please try again.');
+      setError(formatAuthError(err, 'Invalid email or password. Please try again.'));
     } finally {
       setLoading(false);
     }
@@ -54,10 +68,11 @@ export default function Login() {
                 <input
                   type="email"
                   required
+                  disabled={loading}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="researcher@university.edu"
-                  className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-colors"
+                  className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-colors disabled:opacity-60"
                 />
               </div>
             </div>
@@ -69,10 +84,11 @@ export default function Login() {
                 <input
                   type="password"
                   required
+                  disabled={loading}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
-                  className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-colors"
+                  className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-700/80 rounded-xl text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-colors disabled:opacity-60"
                 />
               </div>
             </div>

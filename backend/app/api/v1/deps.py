@@ -1,5 +1,5 @@
 from typing import Generator, Optional
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from app.core.config import settings
@@ -13,17 +13,23 @@ security_scheme = HTTPBearer(auto_error=False)
 
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
+    token: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ) -> User:
     """Validates JWT and returns active User or raises 401 Unauthorized."""
-    if not credentials:
+    raw_token = None
+    if credentials:
+        raw_token = credentials.credentials
+    elif token:
+        raw_token = token
+
+    if not raw_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or invalid authentication token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    token = credentials.credentials
-    payload = decode_token(token)
+    payload = decode_token(raw_token)
     if not payload or "sub" not in payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

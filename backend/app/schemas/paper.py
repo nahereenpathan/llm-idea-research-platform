@@ -23,9 +23,13 @@ class AcademicPaperBase(BaseModel):
     has_abstract: Optional[bool] = None
     doi: Optional[str] = None
     source_url: Optional[str] = None
+    pdf_url: Optional[str] = None
+    landing_page_url: Optional[str] = None
+    repository_url: Optional[str] = None
     venue: Optional[str] = None
     citation_count: int = 0
     is_open_access: Optional[bool] = False
+    open_access_status: Optional[str] = None
     is_saved_to_library: bool = False
     user_notes: Optional[str] = None
     ai_summary: Optional[str] = None

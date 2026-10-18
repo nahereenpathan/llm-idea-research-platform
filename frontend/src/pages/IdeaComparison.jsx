@@ -255,13 +255,18 @@ export default function IdeaComparison() {
     try {
       const newComp = await evaluationService.recalculateWeights(projectId, updated);
       setComparison(newComp);
+      // Refresh evaluations to reflect dynamically persisted scores
+      const freshData = await evaluationService.getEvaluation(projectId);
+      if (freshData && freshData.evaluations) {
+        setEvaluations(freshData.evaluations);
+      }
     } catch (err) {
       console.error("Failed to re-calculate recommendation:", err);
     }
   };
 
   const getEvaluationForIdea = (ideaId) => {
-    return evaluations.find((e) => e.idea_id === ideaId);
+    return evaluations.find((e) => Number(e.idea_id) === Number(ideaId));
   };
 
   if (loading) {

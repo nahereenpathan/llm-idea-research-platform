@@ -1,4 +1,4 @@
-import api from './api';
+import api, { API_BASE_URL } from './api';
 
 export const presentationService = {
   async listPresentations(projectId) {
@@ -40,6 +40,25 @@ export const presentationService = {
   },
 
   getExportUrl(presentationId, format = 'pptx') {
-    return `/api/v1/presentations/${presentationId}/export?format=${format}`;
+    const token = localStorage.getItem('idealens_token');
+    return `${API_BASE_URL}/presentations/${presentationId}/export?format=${format}${token ? `&token=${token}` : ''}`;
+  },
+
+  async downloadPptxExport(presentationId, title = 'presentation') {
+    const res = await api.get(`/presentations/${presentationId}/export?format=pptx`, {
+      responseType: 'blob',
+    });
+    const blob = new Blob([res.data], {
+      type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const cleanTitle = (title || 'presentation').replace(/[^\w-]/g, '_');
+    link.setAttribute('download', `${cleanTitle}.pptx`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   }
 };
